@@ -1,0 +1,1430 @@
+diff -urBN xen-4.1.4-org/tools/libxc/Makefile xen-4.1.4-pg/tools/libxc/Makefile
+--- xen-4.1.4-org/tools/libxc/Makefile	2012-12-18 13:54:18.000000000 +0100
++++ xen-4.1.4-pg/tools/libxc/Makefile	2014-11-03 16:19:47.972485627 +0100
+@@ -17,6 +17,7 @@
+ CTRL_SRCS-y       += xc_flask.c
+ CTRL_SRCS-y       += xc_physdev.c
+ CTRL_SRCS-y       += xc_private.c
++CTRL_SRCS-y       += xc_fp.c
+ CTRL_SRCS-y       += xc_sedf.c
+ CTRL_SRCS-y       += xc_csched.c
+ CTRL_SRCS-y       += xc_csched2.c
+diff -urBN xen-4.1.4-org/tools/libxc/xc_fp.c xen-4.1.4-pg/tools/libxc/xc_fp.c
+--- xen-4.1.4-org/tools/libxc/xc_fp.c	1970-01-01 01:00:00.000000000 +0100
++++ xen-4.1.4-pg/tools/libxc/xc_fp.c	2014-12-12 16:28:37.502235001 +0100
+@@ -0,0 +1,118 @@
++/****************************************************************************
++ *
++ ****************************************************************************
++ *
++ *        File: xc_fp.c
++ *
++ * Description: XC Interface to the fixed priority scheduler
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation;
++ * version 2.1 of the License.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
++ */
++
++#include "xc_private.h"
++
++int
++xc_sched_fp_domain_set(
++    xc_interface *xch,
++    uint32_t domid,
++    struct xen_domctl_sched_fp *sdom)
++{
++    DECLARE_DOMCTL;
++
++    domctl.cmd = XEN_DOMCTL_scheduler_op;
++    domctl.domain = (domid_t) domid;
++    domctl.u.scheduler_op.sched_id = XEN_SCHEDULER_FP;
++    domctl.u.scheduler_op.cmd = XEN_DOMCTL_SCHEDOP_putinfo;
++    domctl.u.scheduler_op.u.fp = *sdom;
++
++    return do_domctl(xch, &domctl);
++}
++
++int
++xc_sched_fp_domain_get(
++    xc_interface *xch,
++    uint32_t domid,
++    struct xen_domctl_sched_fp *sdom)
++{
++    DECLARE_DOMCTL;
++    int err;
++
++    domctl.cmd = XEN_DOMCTL_scheduler_op;
++    domctl.domain = (domid_t) domid;
++    domctl.u.scheduler_op.sched_id = XEN_SCHEDULER_FP;
++    domctl.u.scheduler_op.cmd = XEN_DOMCTL_SCHEDOP_getinfo;
++
++    err = do_domctl(xch, &domctl);
++    if ( err == 0 )
++        *sdom = domctl.u.scheduler_op.u.fp;
++
++    return err;
++}
++
++int
++xc_sched_fp_schedule_set(
++    xc_interface *xch,
++    struct xen_sysctl_fp_schedule *schedule)
++{
++    int rc;
++    DECLARE_SYSCTL;
++    DECLARE_HYPERCALL_BOUNCE(
++        schedule,
++        sizeof(*schedule),
++        XC_HYPERCALL_BUFFER_BOUNCE_IN);
++    
++    if ( xc_hypercall_bounce_pre(xch, schedule) )
++        return -1;
++
++    sysctl.cmd = XEN_SYSCTL_scheduler_op;
++    sysctl.u.scheduler_op.cpupool_id = 0;
++    sysctl.u.scheduler_op.sched_id = XEN_SCHEDULER_FP;
++    sysctl.u.scheduler_op.cmd = XEN_SYSCTL_SCHEDOP_putinfo;
++    set_xen_guest_handle(sysctl.u.scheduler_op.u.sched_fp.schedule, schedule);
++    
++    rc = do_sysctl(xch, &sysctl);
++    xc_hypercall_bounce_post(xch, schedule);
++    
++    return rc;
++}
++
++int
++xc_sched_fp_schedule_get(
++    xc_interface *xch,
++    struct xen_sysctl_fp_schedule *schedule)
++{
++    int rc;
++    DECLARE_SYSCTL;
++    DECLARE_HYPERCALL_BOUNCE(
++        schedule,
++        sizeof(*schedule),
++        XC_HYPERCALL_BUFFER_BOUNCE_OUT);
++
++    if ( xc_hypercall_bounce_pre(xch, schedule) )
++        return -1;
++
++    sysctl.cmd = XEN_SYSCTL_scheduler_op;
++    sysctl.u.scheduler_op.cpupool_id = 0;
++    sysctl.u.scheduler_op.sched_id = XEN_SCHEDULER_FP;
++    sysctl.u.scheduler_op.cmd = XEN_SYSCTL_SCHEDOP_getinfo;
++    set_xen_guest_handle(sysctl.u.scheduler_op.u.sched_fp.schedule,
++            schedule);
++
++    rc = do_sysctl(xch, &sysctl);
++
++    xc_hypercall_bounce_post(xch, schedule);
++    
++    return rc;
++}
+Binary files xen-4.1.4-org/tools/libxc/.xc_fp.c.swp and xen-4.1.4-pg/tools/libxc/.xc_fp.c.swp differ
+diff -urBN xen-4.1.4-org/tools/libxc/xenctrl.h xen-4.1.4-pg/tools/libxc/xenctrl.h
+--- xen-4.1.4-org/tools/libxc/xenctrl.h	2012-12-18 13:54:18.000000000 +0100
++++ xen-4.1.4-pg/tools/libxc/xenctrl.h	2014-12-11 16:18:42.053662305 +0100
+@@ -675,6 +675,20 @@
+                                uint32_t domid,
+                                struct xen_domctl_sched_credit2 *sdom);
+ 
++int xc_sched_fp_domain_set(xc_interface *xch,
++                               uint32_t domid,
++                               struct xen_domctl_sched_fp *sdom);
++
++int xc_sched_fp_domain_get(xc_interface *xch,
++                               uint32_t domid,
++                               struct xen_domctl_sched_fp *sdom);
++
++int xc_sched_fp_schedule_set(xc_interface *xch,
++				struct xen_sysctl_fp_schedule *schedule);
++
++int xc_sched_fp_schedule_get(xc_interface *xch,
++				struct xen_sysctl_fp_schedule *schedule);
++
+ int
+ xc_sched_arinc653_schedule_set(
+     xc_interface *xch,
+diff -urBN xen-4.1.4-org/tools/python/xen/lowlevel/xc/xc.c xen-4.1.4-pg/tools/python/xen/lowlevel/xc/xc.c
+--- xen-4.1.4-org/tools/python/xen/lowlevel/xc/xc.c	2012-12-18 13:54:19.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/lowlevel/xc/xc.c	2015-01-05 17:20:33.081248001 +0100
+@@ -1622,6 +1622,90 @@
+                          "weight",  sdom.weight);
+ }
+ 
++static PyObject *pyxc_sched_fp_domain_set(XcObject *self,
++                                              PyObject *args,
++                                              PyObject *kwds)
++{
++    uint32_t domid;
++    uint64_t slice;
++    uint64_t period;
++    uint64_t deadline;
++    uint16_t priority;
++    static char *kwd_list[] = { "domid", "slice", "period", "deadline", "priority", NULL };
++    static char kwd_type[] = "I|LLLH";
++    struct xen_domctl_sched_fp sdom;
++
++    printf("In pyxc_sched_fp_domain_set");
++
++    slice = 0;
++    period = 0;
++    priority = 0;
++    if( !PyArg_ParseTupleAndKeywords(args, kwds, kwd_type, kwd_list,
++                                     &domid, &slice, &period, &deadline, &priority) )
++        return NULL;
++
++    sdom.slice = slice;
++    sdom.period = period;
++    sdom.priority = priority;
++    sdom.deadline = deadline;
++
++    if ( xc_sched_fp_domain_set(self->xc_handle, domid, &sdom) != 0 )
++        return pyxc_error_to_exception(self->xc_handle);
++
++    Py_INCREF(zero);
++    return zero;
++}
++
++static PyObject *pyxc_sched_fp_domain_get(XcObject *self, PyObject *args)
++{
++    uint32_t domid;
++    struct xen_domctl_sched_fp sdom;
++
++    if( !PyArg_ParseTuple(args, "I", &domid) )
++        return NULL;
++
++    if ( xc_sched_fp_domain_get(self->xc_handle, domid, &sdom) != 0 )
++        return pyxc_error_to_exception(self->xc_handle);
++
++    return Py_BuildValue("{s:L,s:L,s:L,s:l}",
++    		             "slice",  sdom.slice,
++    		             "period",  sdom.period,
++                         "deadline", sdom.deadline,
++                         "priority",  sdom.priority);
++}
++
++
++static PyObject *pyxc_sched_fp_schedule_set(XcObject *self,
++                                              PyObject *args,
++                                              PyObject *kwds)
++{
++    uint32_t strategy;
++    xen_sysctl_fp_schedule_t schedule;
++
++    strategy = 0;
++    if ( !PyArg_ParseTuple(args, "i", &strategy) ) {
++        return NULL;
++    }
++
++    schedule.strategy = strategy;
++    if ( xc_sched_fp_schedule_set(self->xc_handle, &schedule) )
++        return pyxc_error_to_exception(self->xc_handle);
++    
++    Py_INCREF(zero);
++    return zero;
++}
++
++static PyObject *pyxc_sched_fp_schedule_get(XcObject *self)
++{
++    xen_sysctl_fp_schedule_t schedule;
++    
++    if ( xc_sched_fp_schedule_get(self->xc_handle, &schedule) != 0 )
++        return pyxc_error_to_exception(self->xc_handle);
++    
++    return Py_BuildValue("{s:i}", "strategy", schedule.strategy);
++}
++
++
+ static PyObject *pyxc_domain_setmaxmem(XcObject *self, PyObject *args)
+ {
+     uint32_t dom;
+@@ -2554,6 +2638,46 @@
+       "Returns:   [dict]\n"
+       " weight    [short]: domain's scheduling weight\n"},
+ 
++{ "sched_fp_domain_set",
++      (PyCFunction)pyxc_sched_fp_domain_set,
++      METH_KEYWORDS, "\n"
++      "Set the scheduling parameters for a domain when running with the\n"
++      "SMP fp scheduler.\n"
++      " domid     [int]:   domain id to set\n"
++      " slice    [long]: domain's scheduling wcet\n"
++      " period    [long]: domain's scheduling period\n"
++      " deadline  [long]: domain's scheduling deadline\n"
++      " priority    [short]: domain's scheduling priority\n"
++      "Returns: [int] 0 on success; -1 on error.\n" },
++
++    { "sched_fp_domain_get",
++      (PyCFunction)pyxc_sched_fp_domain_get,
++      METH_VARARGS, "\n"
++      "Get the scheduling parameters for a domain when running with the\n"
++      "SMP fp scheduler.\n"
++      " domid     [int]:   domain id to get\n"
++      "Returns:   [dict]\n"
++      " domid     [int]:   domain id to set\n"
++      " slice    [long]: domain's scheduling wcet\n"
++      " period    [long]: domain's scheduling period\n"
++      " deadline  [long]: domain's scheduling deadline\n"
++      " priority    [short]: domain's scheduling priority\n"},
++
++    { "sched_fp_schedule_get",
++      (PyCFunction)pyxc_sched_fp_schedule_get,
++      METH_NOARGS, "\n"
++      "Get the global scheduling parameters for the running host\n"
++      " Returns: [int]\n"},
++
++    { "sched_fp_schedule_set",
++      (PyCFunction)pyxc_sched_fp_schedule_set,
++      METH_KEYWORDS, "\n"
++      "Set the global parameters of the SMP fp scheduler.\n"
++      " strategy:   [int]   strategy the scheduler shall use (e.g 0 for rate-monotonic,\n"
++      " 1 for deadline-monotonic or 2 for fixed priority).\n"
++      "Returns: [int] 0 on success; -1 on error.\n"}, 
++      
++
+     { "evtchn_alloc_unbound", 
+       (PyCFunction)pyxc_evtchn_alloc_unbound,
+       METH_VARARGS | METH_KEYWORDS, "\n"
+@@ -3045,6 +3169,7 @@
+     PyModule_AddIntConstant(m, "XEN_SCHEDULER_SEDF", XEN_SCHEDULER_SEDF);
+     PyModule_AddIntConstant(m, "XEN_SCHEDULER_CREDIT", XEN_SCHEDULER_CREDIT);
+     PyModule_AddIntConstant(m, "XEN_SCHEDULER_CREDIT2", XEN_SCHEDULER_CREDIT2);
++    PyModule_AddIntConstant(m, "XEN_SCHEDULER_FP", XEN_SCHEDULER_FP);
+ 
+ }
+ 
+diff -urBN xen-4.1.4-org/tools/python/xen/util/path.py.tmp xen-4.1.4-pg/tools/python/xen/util/path.py.tmp
+--- xen-4.1.4-org/tools/python/xen/util/path.py.tmp	1970-01-01 01:00:00.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/util/path.py.tmp	2015-01-09 14:38:28.456159002 +0100
+@@ -0,0 +1,10 @@
++SBINDIR="/usr/sbin"
++BINDIR="/usr/bin"
++LIBEXEC="/usr/lib/xen/bin"
++LIBDIR="/usr/lib64"
++SHAREDIR="/usr/share"
++PRIVATE_BINDIR="/usr/lib64/xen/bin"
++XENFIRMWAREDIR="/usr/lib/xen/boot"
++XEN_CONFIG_DIR="/etc/xen"
++XEN_SCRIPT_DIR="/etc/xen/scripts"
++XEN_LOCK_DIR="/var/lock"
+diff -urBN xen-4.1.4-org/tools/python/xen/xend/server/SrvDomain.py xen-4.1.4-pg/tools/python/xen/xend/server/SrvDomain.py
+--- xen-4.1.4-org/tools/python/xen/xend/server/SrvDomain.py	2012-12-18 13:54:20.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/xend/server/SrvDomain.py	2014-12-19 13:44:52.661118987 +0100
+@@ -177,6 +177,24 @@
+         val = fn(req.args, {'dom': self.dom.getName()})
+         return val
+ 
++    def op_domain_sched_fp_get(self, _, req):
++        fn = FormFn(self.xd.domain_sched_fp_get,
++                    [['dom', 'str']])
++        val = fn(req.args, {'dom': self.dom.getName()})
++        return val
++
++
++    def op_domain_sched_fp_set(self, _, req):
++        fn = FormFn(self.xd.domain_sched_fp_set,
++                    [['dom', 'str'],
++                     ['slice','int'],
++                     ['period','int'],
++                     ['deadline','int'],
++                     ['priority', 'int']])
++        val = fn(req.args, {'dom': self.dom.getName()})
++        return val
++
++
+     def op_maxmem_set(self, _, req):
+         return self.call(self.dom.setMemoryMaximum,
+                          [['memory', 'int']],
+diff -urBN xen-4.1.4-org/tools/python/xen/xend/XendAPI.py xen-4.1.4-pg/tools/python/xen/xend/XendAPI.py
+--- xen-4.1.4-org/tools/python/xen/xend/XendAPI.py	2012-12-18 13:54:20.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/xend/XendAPI.py	2014-12-19 13:49:45.316501987 +0100
+@@ -1662,6 +1662,14 @@
+            and 'cap' in xeninfo.info['vcpus_params']:
+             weight = xeninfo.info['vcpus_params']['weight']
+             xendom.domain_sched_credit2_set(xeninfo.getDomid(), weight)
++            
++        if 'slice' in xeninfo.info['vcpus_params'] \
++           and 'period' in xeninfo.info['vcpus_params'] and 'deadline' in xeninfo.deadline['vcpu_params']:
++            slice = xeninfo.info['vcpus_params']['slice']
++            period = xeninfo.info['vcpus_params']['period']
++            deadline = xeninfo.info['vcpu_params']['deadline']
++            priority = xeninfo.info['vcpus_params']['priority']
++            xendom.domain_sched_fp_set(xeninfo.getDomid(), slice, period, deadline, priority)
+ 
+     def VM_set_VCPUs_number_live(self, _, vm_ref, num):
+         dom = XendDomain.instance().get_vm_by_uuid(vm_ref)
+diff -urBN xen-4.1.4-org/tools/python/xen/xend/XendConfig.py xen-4.1.4-pg/tools/python/xen/xend/XendConfig.py
+--- xen-4.1.4-org/tools/python/xen/xend/XendConfig.py	2012-12-18 13:54:20.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/xend/XendConfig.py	2014-12-19 13:52:27.916211986 +0100
+@@ -701,6 +701,30 @@
+                 int(sxp.child_value(sxp_cfg, "cpu_cap", 0))
+         else:
+             cfg["vcpus_params"]["cap"] = int(cfg["vcpus_params"]["cap"])
++            
++        if not cfg["vcpus_params"].has_key("slice"):
++            cfg["vcpus_params"]["slice"] = \
++                int(sxp.child_value(sxp_cfg, "cpu_slice", 50))
++        else:
++            cfg["vcpus_params"]["slice"] = int(cfg["vcpus_params"]["slice"])
++            
++        if not cfg["vcpus_params"].has_key("period"):
++            cfg["vcpus_params"]["period"] = \
++                int(sxp.child_value(sxp_cfg, "cpu_period", 100))
++        else:
++            cfg["vcpus_params"]["period"] = int(cfg["vcpus_params"]["period"])
++        
++        if not cfg["vcpus_params"].has_key("deadline"):
++            cfg["vcpus_params"]["deadline"] = \
++                int(sxp.child_value(sxp_cfg, "cpu_deadline", 100))
++        else:
++            cfg["vcpus_params"]["period"] = int(cfg["vcpus_params"]["period"])
++            
++        if not cfg["vcpus_params"].has_key("priority"):
++            cfg["vcpus_params"]["priority"] = \
++                int(sxp.child_value(sxp_cfg, "cpu_priority", 100))
++        else:
++            cfg["vcpus_params"]["priority"] = int(cfg["vcpus_params"]["priority"])
+ 
+         # Only extract options we know about.
+         extract_keys = LEGACY_UNSUPPORTED_BY_XENAPI_CFG + \
+@@ -1081,6 +1105,14 @@
+             int(self['vcpus_params'].get('weight', 256))
+         self['vcpus_params']['cap'] = \
+             int(self['vcpus_params'].get('cap', 0))
++        self['vcpus_params']['slice'] = \
++            int(self['vcpus_params'].get('slice', 50))
++        self['vcpus_params']['period'] = \
++            int(self['vcpus_params'].get('period', 100))
++        self['vcpus_params']['deadline'] = \
++            int(self['vcpus_params'].get('deadline', 100))
++        self['vcpus_params']['priority'] = \
++            int(self['vcpus_params'].get('priority', 100))
+ 
+         for key, val in self['vcpus_params'].items():
+             if key.startswith('cpumap'):
+@@ -1122,6 +1154,10 @@
+         if legacy_only:
+             sxpr.append(['cpu_weight', int(self['vcpus_params'].get('weight', 256))])
+             sxpr.append(['cpu_cap', int(self['vcpus_params'].get('cap', 0))])
++            sxpr.append(['cpu_slice', int(self['vcpus_params'].get('slice', 50))])
++            sxpr.append(['cpu_period', int(self['vcpus_params'].get('period', 100))])
++            sxpr.append(['cpu_deadline', int(self['vcpus_params'].get('deadline', 100))])
++            sxpr.append(['cpu_priority', int(self['vcpus_params'].get('priority', 100))])
+         else:
+             for name, typ in XENAPI_CFG_TYPES.items():
+                 if name in self and self[name] not in (None, []):
+diff -urBN xen-4.1.4-org/tools/python/xen/xend/XendCPUPool.py xen-4.1.4-pg/tools/python/xen/xend/XendCPUPool.py
+--- xen-4.1.4-org/tools/python/xen/xend/XendCPUPool.py	2012-12-18 13:54:20.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/xend/XendCPUPool.py	2014-11-03 16:19:48.192485627 +0100
+@@ -48,6 +48,7 @@
+     'credit2': xen.lowlevel.xc.XEN_SCHEDULER_CREDIT2,
+     'credit' : xen.lowlevel.xc.XEN_SCHEDULER_CREDIT,
+     'sedf'   : xen.lowlevel.xc.XEN_SCHEDULER_SEDF,
++    'fp'   : xen.lowlevel.xc.XEN_SCHEDULER_FP,
+     }
+ 
+ xc = xen.lowlevel.xc.xc()
+diff -urBN xen-4.1.4-org/tools/python/xen/xend/XendDomainInfo.py xen-4.1.4-pg/tools/python/xen/xend/XendDomainInfo.py
+--- xen-4.1.4-org/tools/python/xen/xend/XendDomainInfo.py	2012-12-18 13:54:20.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/xend/XendDomainInfo.py	2014-12-19 13:54:53.632211986 +0100
+@@ -2006,6 +2006,30 @@
+     def getWeight(self):
+         return self.info['vcpus_params']['weight']
+ 
++    def getSlice(self):
++        return self.info['vcpus_params']['slice']
++
++    def setSlice(self, cpu_slice):
++        self.info['vcpus_params']['slice'] = cpu_slice
++
++    def getPeriod(self):
++        return self.info['vcpus_params']['period']
++    
++    def setPeriod(self, cpu_period):
++        self.info['vcpus_params']['period'] = cpu_period
++    
++    def getDeadline(self):
++        return self.info['vcpus_params']['deadline']
++
++    def setDeadline(self, cpu_period):
++        self.info['vcpus_params']['deadline'] = cpu_period
++    
++    def getPriority(self):
++        return self.info['vcpus_params']['priority']
++
++    def setPriority(self, cpu_priority):
++        self.info['vcpus_params']['priority'] = cpu_priority
++
+     def setWeight(self, cpu_weight):
+         self.info['vcpus_params']['weight'] = cpu_weight
+ 
+@@ -2829,6 +2853,13 @@
+             from xen.xend import XendDomain
+             XendDomain.instance().domain_sched_credit2_set(self.getDomid(),
+                                                            self.getWeight())
++        elif XendNode.instance().xenschedinfo() == 'fp':
++            from xen.xend import XendDomain
++            XendDomain.instance().domain_sched_fp_set(self.getDomid(),
++                                                           self.getSlice(),
++                                                           self.getPeriod(),
++                                                           self.getDeadline(),
++                                                           self.getPriority())
+ 
+     def _initDomain(self):
+         log.debug('XendDomainInfo.initDomain: %s %s',
+diff -urBN xen-4.1.4-org/tools/python/xen/xend/XendDomain.py xen-4.1.4-pg/tools/python/xen/xend/XendDomain.py
+--- xen-4.1.4-org/tools/python/xen/xend/XendDomain.py	2012-12-18 13:54:20.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/xend/XendDomain.py	2014-12-21 20:12:44.887804317 +0100
+@@ -1332,7 +1332,7 @@
+         return val       
+ 
+     def domain_migrate(self, domid, dst, live=False, port=0, node=-1, ssl=None,\
+-                       chs=False):
++                       chs=False, cdc=-1):
+         """Start domain migration.
+         
+         @param domid: Domain ID or Name
+@@ -1349,11 +1349,29 @@
+         @type ssl: bool
+         @keyword chs: change home server for managed domain
+         @type chs: bool
++        @type cdc:int
+         @rtype: None
+         @raise XendError: Failed to migrate
+         @raise XendInvalidDomain: Domain is not valid
+         """
+-
++        def cpu_make_map(cpulist):
++            cpus = []
++            for c in cpulist.split(','):
++                if c == '':
++                    continue
++                if c.find('-') != -1:
++                    (x,y) = c.split('-')
++                    for i in range(int(x),int(y)+1):
++                        cpus.append(int(i))
++                else:
++                    # remove this element from the list
++                    if c[0] == '^':
++                        cpus = [x for x in cpus if x != int(c[1:])]
++                    else:
++                        cpus.append(int(c))
++            cpus.sort()
++            return ",".join(map(str, cpus))
++    
+         dominfo = self.domain_lookup_nr(domid)
+         if not dominfo:
+             raise XendInvalidDomain(str(domid))
+@@ -1366,6 +1384,9 @@
+                              POWER_STATE_NAMES[dominfo._stateGet()])
+         if chs and not self.is_domain_managed(dominfo):
+             raise XendError("Domain is not a managed domain")
++        if cdc >= 0:
++            cpumap = cpu_make_map(str(cdc))
++            self.domain_pincpu_parameters(domid,"all",cpumap)
+ 
+         """ The following call may raise a XendError exception """
+         dominfo.testMigrateDevices(True, dst)
+@@ -1620,6 +1641,43 @@
+         self.managed_config_save(dominfo)
+ 
+         return rc
++    
++    def domain_pincpu_parameters(self, domid, vcpu, cpumap):
++        """Set which cpus vcpu can use
++
++        @param domid: Domain ID or Name
++        @type domid: int or string.
++        @param vcpu: vcpu to pin to
++        @type vcpu: int
++        @param cpumap:  string repr of usable cpus
++        @type cpumap: string
++        @rtype: 0
++        """
++        dominfo = self.domain_lookup_nr(domid)
++        if not dominfo:
++            raise XendInvalidDomain(str(domid))
++
++        # if vcpu is keyword 'all', apply the cpumap to all vcpus
++        if str(vcpu).lower() == "all":
++            vcpus = range(0, int(dominfo.getVCpuCount()))
++        else:
++            vcpus = [ int(vcpu) ]
++       
++        # set the same cpumask for all vcpus
++        rc = 0
++        cpus = dominfo.getCpus()
++        cpumap = map(int, cpumap.split(","))
++        for v in vcpus:
++            try:
++                cpus[v] = cpumap
++            except Exception, ex:
++                log.exception(ex)
++                raise XendError("Cannot pin vcpu: %d to cpu: %s - %s" % \
++                                (v, cpumap, str(ex)))
++        dominfo.setCpus(cpus)
++        self.managed_config_save(dominfo)
++
++        return rc
+ 
+     def domain_cpu_sedf_set(self, domid, period, slice_, latency, extratime,
+                             weight):
+@@ -1832,6 +1890,97 @@
+             log.exception(ex)
+             raise XendError(str(ex))
+ 
++    def domain_sched_fp_get(self, domid):
++        """Get fp scheduler parameters for a domain.
++
++        @param domid: Domain ID or Name
++        @type domid: int or string.
++        @rtype: SXP object
++        @return: fp scheduler parameters
++        """
++        dominfo = self.domain_lookup_nr(domid)
++        if not dominfo:
++            raise XendInvalidDomain(str(domid))
++
++        if dominfo._stateGet() in (DOM_STATE_RUNNING, DOM_STATE_PAUSED):
++            try:
++                return xc.sched_fp_domain_get(dominfo.getDomid())
++            except Exception, ex:
++                raise XendError(str(ex))
++        else:
++            return {'slice' : dominfo.getSlice(),
++                    'period' : dominfo.getPeriod(),
++                    'deadline' : dominfo.getDeadline(),
++                    'priority' : dominfo.getPriority()}
++
++    def domain_sched_fp_set(self, domid, slice = None, period = None, deadline = None, priority = None):
++        """Set fp scheduler parameters for a domain.
++
++        @param domid: Domain ID or Name
++        @type domid: int or string.
++        @type slice: long
++        @type period: long  
++        @type deadline: long
++        @type priority: int
++        @rtype: 0
++        """
++        
++        set_slice = False
++        set_period = False
++        set_priority = False
++        set_deadline = False
++        dominfo = self.domain_lookup_nr(domid)
++        if not dominfo:
++            raise XendInvalidDomain(str(domid))
++        try:
++            if slice is None:
++                slice = int(0)
++            elif slice < 1 or slice > 9999000000:
++                raise XendError("slice is out of range: " + str(slice))
++            else:
++                set_slice = True
++                
++            if period is None:
++                period = int(0)
++            elif period < 1 or period > 9999000000:
++                raise XendError("period is out of range: " + str(period))
++            else:
++                set_period = True
++                
++            if deadline is None:
++                deadline = int(0)
++            elif deadline < 1 or deadline > 9999000000:
++                raise XendError("deadline is out of range: " + str(period))
++            else:
++                set_deadline = True
++            
++            if priority is None:
++                priority = int(0)
++            elif priority < 1 or priority > 999000000:
++                raise XendError("priority is out of range: " + str(priority))
++            else:
++                set_priority = True
++                
++            rc = 0
++            if dominfo._stateGet() in (DOM_STATE_RUNNING, DOM_STATE_PAUSED):
++                rc = xc.sched_fp_domain_set(dominfo.getDomid(), slice, period, deadline, priority)
++            if rc == 0:
++                if set_slice:
++                    dominfo.setSlice(slice)
++                if set_period:
++                    dominfo.setPeriod(period)
++                if set_deadline:
++                    dominfo.setDeadline(deadline)
++                if set_priority:
++                    dominfo.setPriority(priority)
++                self.managed_config_save(dominfo)
++            return rc
++        except Exception, ex:
++            log.exception(ex)
++            raise XendError(str(ex))
++
++
++
+     def domain_maxmem_set(self, domid, mem):
+         """Set the memory limit for a domain.
+ 
+diff -urBN xen-4.1.4-org/tools/python/xen/xend/XendNode.py xen-4.1.4-pg/tools/python/xen/xend/XendNode.py
+--- xen-4.1.4-org/tools/python/xen/xend/XendNode.py	2012-12-18 13:54:20.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/xend/XendNode.py	2014-11-03 16:19:48.292485627 +0100
+@@ -808,7 +808,9 @@
+             return 'credit'
+         elif sched_id == xen.lowlevel.xc.XEN_SCHEDULER_CREDIT2:
+             return 'credit2'
+-        else:
++	elif sched_id == xen.lowlevel.xc.XEN_SCHEDULER_FP:
++            return 'fp'
++	else:
+             return 'unknown'
+ 
+     def get_cpu_configuration(self):
+@@ -1022,6 +1024,8 @@
+             return 'credit'
+         elif sched_id == xen.lowlevel.xc.XEN_SCHEDULER_CREDIT2:
+             return 'credit2'
++	elif sched_id == xen.lowlevel.xc.XEN_SCHEDULER_FP:
++            return 'fp'
+         else:
+             return 'unknown'
+ 
+diff -urBN xen-4.1.4-org/tools/python/xen/xm/create.py xen-4.1.4-pg/tools/python/xen/xm/create.py
+--- xen-4.1.4-org/tools/python/xen/xm/create.py	2012-12-18 13:54:20.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/xm/create.py	2014-12-19 13:57:02.444495986 +0100
+@@ -271,6 +271,22 @@
+           fn=set_int, default=None,
+           use="""Set the cpu time ratio to be allocated to the domain.""")
+ 
++gopts.var('cpu_slice', val='SLICE',
++          fn=set_int, default=None,
++          use="""Set the cpu slice to be allocated to the domain.""")
++
++gopts.var('cpu_period', val='PERIOD',
++          fn=set_int, default=None,
++          use="""Set the cpu period to be allocated to the domain.""")
++
++gopts.var('cpu_deadline', val='DEADLINE',
++          fn=set_int, default=None,
++          use="""Set the cpu deadline to be allocated to the domain.""")
++
++gopts.var('cpu_priority', val='PRIORITY',
++          fn=set_int, default=None,
++          use="""Set the priority of the domain.""")
++
+ gopts.var('restart', val='onreboot|always|never',
+           fn=set_value, default=None,
+           use="""Deprecated.  Use on_poweroff, on_reboot, and on_crash
+@@ -1151,6 +1167,14 @@
+         config.append(['cpu_cap', vals.cpu_cap])
+     if vals.cpu_weight is not None:
+         config.append(['cpu_weight', vals.cpu_weight])
++    if vals.cpu_slice is not None:
++        config.append(['cpu_slice', vals.cpu_slice])
++    if vals.cpu_period is not None:
++        config.append(['cpu_period', vals.cpu_period])
++    if vals.cpu_deadline is not None:
++        config.append(['cpu_deadline', vals.cpu_deadline])
++    if vals.cpu_priority is not None:
++        config.append(['cpu_priority', vals.cpu_priority])
+     if vals.blkif:
+         config.append(['backend', ['blkif']])
+     if vals.netif:
+diff -urBN xen-4.1.4-org/tools/python/xen/xm/main.py xen-4.1.4-pg/tools/python/xen/xm/main.py
+--- xen-4.1.4-org/tools/python/xen/xm/main.py	2012-12-18 13:54:20.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/xm/main.py	2015-01-06 13:38:37.211729626 +0100
+@@ -24,6 +24,7 @@
+ import atexit
+ import cmd
+ import os
++import pdb
+ import pprint
+ import shlex
+ import sys
+@@ -60,6 +61,7 @@
+ from xen.util import auxbin
+ 
+ import XenAPI
++import xen.lowlevel.xc
+ 
+ import inspect
+ from xen.xend import XendOptions
+@@ -155,6 +157,8 @@
+                      'Get/set credit scheduler parameters.'),
+     'sched-credit2': ('[-d <Domain> [-w[=WEIGHT]]',
+                      'Get/set credit2 scheduler parameters.'),
++    'sched-fp'  : ('[-d <Domain> [-s[=SLICE]|-P[=PERIOD]|-p[=PRIORITY]|-D[=DEADLINE]] [-S[=STRATEGY]]',
++                     'Get/set fp scheduler parameters.'),
+     'sysrq'       : ('<Domain> <letter>', 'Send a sysrq to a domain.'),
+     'debug-keys'  : ('<Keys>', 'Send debug keys to Xen.'),
+     'trigger'     : ('<Domain> <nmi|reset|init|s3resume|power> [<VCPU>]',
+@@ -304,6 +308,15 @@
+        ('-d DOMAIN', '--domain=DOMAIN', 'Domain to modify'),
+        ('-w WEIGHT', '--weight=WEIGHT', 'Weight (int)'),
+     ),
++    'sched-fp': (
++       ('-d DOMAIN', '  --domain=DOMAIN', '    Domain to modify'),
++       ('-s SLICE', '   --slice=SLICE', '    Slice (us)'),
++       ('-P PERIOD', '  --period=PERIOD', '    Period (us)'),
++       ('-p PRIORITY', '--priority=PRIORITY', '  Priority (int)'),
++       ('-S STRATEGY', '--strategy=STRATEGY', '  Strategy (int) (Either rate-monotonic (0), deadline-monotonic (1) or fixed priority (2))'),
++       ('-D DEADLINE', '--deadline=DEADLINE', '  Deadline (int)'),
++    ),
++    
+     'list': (
+        ('-l', '--long',         'Output all VM details in SXP'),
+        ('', '--label',          'Include security labels'),
+@@ -456,6 +469,7 @@
+     "sched-credit2",
+     "sched-credit",
+     "sched-sedf",
++    "sched-fp",	
+     ]
+ 
+ device_commands = [
+@@ -1108,6 +1122,18 @@
+         'extratime': get_info('extratime',     int,   -1),
+         'weight'   : get_info('weight',        int,   -1),
+         }
++    
++def parse_fp_info(info):
++    def get_info(n, t, d):
++        return t(sxp.child_value(info, n, d))
++
++    return {
++        'domid'    : get_info('domid',         int,   -1),
++        'slice'    : get_info('slice',         int,   -1),
++        'period'   : get_info('period',        int,   -1),
++        'priority' : get_info('priority',      int,   -1),
++        'deadline' : get_info('deadline',      int,   -1),
++        }
+ 
+ def domid_match(domid, info):
+     return domid is None or domid == info['name'] or \
+@@ -1909,6 +1935,146 @@
+             if result != 0:
+                 err(str(result))
+ 
++def xm_sched_fp(args):
++    """Get/Set options for Fixed Priority Scheduler."""
++    xenapi_unsupported()
++    
++    def ns_to_ms(val):
++        return float(val) * 0.000001
++    
++    def ms_to_ns(val):
++        return (float(val) / 0.000001)
++
++    def print_fp(info):
++        info['slice']   = info['slice']
++        info['period']  = info['period']
++        info['deadline'] = info['deadline']
++        print( ("%(name)-32s %(domid)5s %(slice)9.1f %(period)10.1f %(deadline)10.1f %(priority)8d") % info)
++                
++    check_sched_type('fp')
++        
++    try:
++        (options, params) = getopt.gnu_getopt(args, "d:s:P:D:p:S:",
++            ["domain=","slice=", "period=", "deadline=", "priority=", "strategy="])
++    except getopt.GetoptError, opterr:
++        err(opterr)
++        usage('sched-fp')
++    
++    xc = xen.lowlevel.xc.xc()   
++    domid = None
++    slice = None
++    period = None
++    deadline = None
++    priority = None
++    strategy = None   
++
++    for (k, v) in options:
++        if k in ["-d","--domain"]:
++            domid = v
++        elif k in ["-s", "--slice"]:
++            slice = int(v)
++        elif k in ["-P", "--period"]:
++            period = int(v)
++            priority = int(v)
++        elif k in ["-D", "--deadline"]:
++            deadline = int(v)
++        elif k in ["-p", "--priority"]:
++            priority = int(v)
++        elif k in ["-S", "--strategy"]:
++            strategy = int(v)
++
++    doms = filter(lambda x : domid_match(domid, x),
++                  [parse_doms_info(dom)
++                  for dom in getDomains(None, 'all')])
++    
++    if slice is None and period is None and deadline is None and priority is None and strategy is None:
++        if domid is not None and doms == []: 
++            err("Domain '%s' does not exist." % domid)
++            usage('sched-fp')
++
++        sched_info = xc.sched_fp_schedule_get()
++        sched = ["rate-monotonic", "deadline-monotonic", "fixed priority"]
++
++	# print header if we aren't setting any parameters
++        print '%s SMP scheduler' % (sched[sched_info['strategy']]) 
++        print '%-33s %4s %-4s %-4s %-4s %-4s' % ('Name','ID','Slice(us)','Period(us)', 'Deadline(us)' ,'Priority')
++        
++        for d in doms:
++        # fetch current values so as not to clobber them
++            try:
++                if serverType == SERVER_XEN_API:
++                    info = server.xenapi.VM_metrics.get_VCPUs_params(
++                        server.xenapi.VM.get_metrics(
++                            get_single_vm(d['name'])))
++                else:
++                    fp_info = server.xend.domain.sched_fp_get(d['name'])
++            except xmlrpclib.Fault:
++                pass
++        
++            if 'slice' not in fp_info or 'period' not in fp_info or 'deadline' not in fp_info or 'priority' not in fp_info:
++                # domain does not support sched-fp?
++                fp_info = {'slice': -1, 'period': -1, 'priority': -1, 'deadline' : -1}
++            
++            fp_info['slice'] = fp_info['slice']
++            fp_info['period'] = fp_info['period']
++            fp_info['deadline'] = fp_info['deadline']
++            fp_info['priority'] = int(fp_info['priority'])
++        
++            fp_info['name'] = d['name']
++            fp_info['domid'] = str(d['domid'])
++            # update values in case of call to set
++            print_fp(fp_info)
++    elif strategy is not None:
++        result = xc.sched_fp_schedule_set(strategy)
++        if result != 0:
++            err(str(result))
++    else:
++        if domid is None:
++            # place holder for system-wide scheduler parameters
++            err("No domain given.")
++            usage('sched-fp')
++
++        if serverType == SERVER_XEN_API:
++            if doms[0]['domid']:
++                server.xenapi.VM.add_to_VCPUs_params_live(
++                    get_single_vm(domid),
++                    "slice",
++                    slice)
++                server.xenapi.VM.add_to_VCPUs_params_live(
++                    get_single_vm(domid),
++                    "period",
++                     period)
++                server.xenapi.VM.add_to_VCPUs_params_live(
++                    get_single_vm(domid),
++                    "deadline",
++                     deadline)
++                server.xenapi.VM.add_to_VCPUs_params_live(
++                     get_single_vm(domid),
++                     "priority",
++                     priority)
++            else:
++                server.xenapi.VM.add_to_VCPUs_params(
++                    get_single_vm(domid),
++                    "slice",
++                    slice)
++                server.xenapi.VM.add_to_VCPUs_params(
++                    get_single_vm(domid),
++                    "period",
++                     period)
++                server.xenapi.VM.add_to_VCPUs_params(
++                    get_single_vm(domid),
++                    "deadline",
++                     deadline)
++                server.xenapi.VM.add_to_VCPUs_params(
++                     get_single_vm(domid),
++                     "priority",
++                      priority)
++        else:
++            result = server.xend.domain.sched_fp_set(domid, slice, period, deadline, priority)
++            if result != 0:
++                err(str(result))
++                
++                
+ def xm_info(args):
+     arg_check(args, "info", 0, 1)
+     
+@@ -3834,6 +4000,7 @@
+     "sched-sedf": xm_sched_sedf,
+     "sched-credit": xm_sched_credit,
+     "sched-credit2": xm_sched_credit2,
++    "sched-fp": xm_sched_fp,
+     # block
+     "block-attach": xm_block_attach,
+     "block-detach": xm_block_detach,
+diff -urBN xen-4.1.4-org/tools/python/xen/xm/messages/xen-xm.pot xen-4.1.4-pg/tools/python/xen/xm/messages/xen-xm.pot
+--- xen-4.1.4-org/tools/python/xen/xm/messages/xen-xm.pot	2012-12-18 13:54:20.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/xm/messages/xen-xm.pot	2014-11-03 16:35:42.712600627 +0100
+@@ -8,10 +8,11 @@
+ msgstr ""
+ "Project-Id-Version: PACKAGE VERSION\n"
+ "Report-Msgid-Bugs-To: \n"
+-"POT-Creation-Date: 2008-03-31 17:40+0100\n"
++"POT-Creation-Date: 2014-11-03 16:35+0100\n"
+ "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+ "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+ "Language-Team: LANGUAGE <LL@li.org>\n"
++"Language: \n"
+ "MIME-Version: 1.0\n"
+ "Content-Type: text/plain; charset=CHARSET\n"
+ "Content-Transfer-Encoding: 8bit\n"
+diff -urBN xen-4.1.4-org/tools/python/xen/xm/migrate.py xen-4.1.4-pg/tools/python/xen/xm/migrate.py
+--- xen-4.1.4-org/tools/python/xen/xm/migrate.py	2012-12-18 13:54:20.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/xm/migrate.py	2014-11-03 16:19:48.384485627 +0100
+@@ -55,6 +55,11 @@
+           fn=set_true, default=0,
+           use="Change home server for managed domains.")
+ 
++gopts.opt('change_destination_core', short='d', val='cdc',
++          fn=set_int, default=-1,
++          use="Change destination CPU ID for migrating domain.")
++
++
+ def help():
+     return str(gopts)
+     
+@@ -75,7 +80,8 @@
+             "port":     opts.vals.port,
+             "node":     opts.vals.node,
+             "ssl":      opts.vals.ssl,
+-            "change_home_server": opts.vals.change_home_server
++            "change_home_server": opts.vals.change_home_server,
++            "change_destination_core": opts.vals.change_destination_core
+             }
+         server.xenapi.VM.migrate(vm_ref, dst, bool(opts.vals.live),
+                                  other_config)
+@@ -84,4 +90,5 @@
+                                    opts.vals.port,
+                                    opts.vals.node,
+                                    opts.vals.ssl,
+-                                   opts.vals.change_home_server)
++                                   opts.vals.change_home_server,
++                                   opts.vals.change_destination_core)
+diff -urBN xen-4.1.4-org/tools/python/xen/xm/xenapi_create.py xen-4.1.4-pg/tools/python/xen/xm/xenapi_create.py
+--- xen-4.1.4-org/tools/python/xen/xm/xenapi_create.py	2012-12-18 13:54:20.000000000 +0100
++++ xen-4.1.4-pg/tools/python/xen/xm/xenapi_create.py	2014-12-19 14:06:58.567026374 +0100
+@@ -1141,6 +1141,30 @@
+         vcpu_param.attributes["value"] \
+             = str(get_child_by_name(config, "cpu_cap", 0))
+         vcpu_params.append(vcpu_param)
++        
++        vcpu_param = document.createElement("vcpu_param")
++        vcpu_param.attributes["key"] = "slice"
++        vcpu_param.attributes["value"] \
++            = str(get_child_by_name(config, "cpu_slice", 0))
++        vcpu_params.append(vcpu_param)
++        
++        vcpu_param = document.createElement("vcpu_param")
++        vcpu_param.attributes["key"] = "period"
++        vcpu_param.attributes["value"] \
++            = str(get_child_by_name(config, "cpu_period", 0))
++        vcpu_params.append(vcpu_param)
++        
++        vcpu_param = document.createElement("vcpu_param")
++        vcpu_param.attributes["key"] = "deadline"
++        vcpu_param.attributes["value"] \
++            = str(get_child_by_name(config, "cpu_deadline", 0))
++        vcpu_params.append(vcpu_param)
++        
++        vcpu_param = document.createElement("vcpu_param")
++        vcpu_param.attributes["key"] = "priority"
++        vcpu_param.attributes["value"] \
++            = str(get_child_by_name(config, "cpu_priority", 0))
++        vcpu_params.append(vcpu_param)
+ 
+         cpus = get_child_by_name(config, "cpus", [])
+         if type(cpus) == list:
+diff -urBN xen-4.1.4-org/tools/libxl/libxl.c xen-4.1.4-pg/tools/libxl/libxl.c
+--- xen-4.1.4-org/tools/libxl/libxl.c	2012-12-18 13:54:18.000000000 +0100
++++ xen-4.1.4-pg/tools/libxl/libxl.c	2015-01-07 15:00:30.749891842 +0100
+@@ -2633,6 +2634,108 @@
+     return 0;
+ }
+ 
++int libxl_sched_fp_schedule_get(libxl_ctx *ctx, libxl_sched_fp *scinfo)
++{
++    struct xen_sysctl_fp_schedule schedule;
++    int rc;
++
++    rc = xc_sched_fp_schedule_get(ctx->xch, &schedule);
++    if (rc != 0) {
++        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "setting schedule sched fp");
++        return ERROR_FAIL;
++    }
++    
++    scinfo->strategy = schedule.strategy;
++    
++    return 0;
++}
++
++int libxl_sched_fp_schedule_set(libxl_ctx *ctx, libxl_sched_fp *scinfo)
++{
++    struct xen_sysctl_fp_schedule schedule;
++    int rc;
++    
++    if (scinfo->strategy > 2 || scinfo->strategy < 0) {
++        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "Unknown strategy. Valid values are 0 for rate-monotonic, 1 for deadline-monotonic or 2 for fixed priority.");
++        return ERROR_INVAL;
++    }
++    
++    schedule.strategy = scinfo->strategy;
++    rc = xc_sched_fp_schedule_set(ctx->xch, &schedule);
++
++    if (rc != 0) {
++        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "setting schedule sched fp");
++        return ERROR_FAIL;
++    }
++    
++    return 0;
++}
++
++int libxl_sched_fp_domain_get(libxl_ctx *ctx, uint32_t domid, libxl_sched_fp *scinfo)
++{
++    struct xen_domctl_sched_fp sdom;
++    int rc;
++    
++    rc = xc_sched_fp_domain_get(ctx->xch, domid, &sdom);
++    if (rc != 0) {
++        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "getting domain sched fp");
++        return ERROR_FAIL;
++    }
++
++    scinfo->priority = sdom.priority;
++    scinfo->period = sdom.period;
++    scinfo->slice = sdom.slice;
++    scinfo->deadline = sdom.deadline;
++
++    return 0;
++}
++
++int libxl_sched_fp_domain_set(libxl_ctx *ctx, uint32_t domid, libxl_sched_fp *scinfo)
++{
++    struct xen_domctl_sched_fp sdom;
++    xc_domaininfo_t domaininfo;
++    int rc;
++
++    rc = xc_domain_getinfolist(ctx->xch, domid, 1, &domaininfo);
++    if (rc <  0) {
++        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "getting domain info list");
++        return ERROR_FAIL;
++    }
++    if (rc != 1 || domaininfo.domain != domid)
++        return ERROR_INVAL;
++
++    if (scinfo->period < 0) {
++        LIBXL__LOG_ERRNOVAL(ctx, LIBXL__LOG_ERROR, rc, 
++            "Period out of range. Valid values are positive integers.");
++        return ERROR_INVAL;
++    }
++
++    if (scinfo->deadline < 0) {
++        LIBXL__LOG_ERRNOVAL(ctx, LIBXL__LOG_ERROR, rc, 
++            "Deadline out of range. Valid values are positive integers.");
++        return ERROR_INVAL;
++    }
++    
++    if (scinfo->slice < 0) {
++        LIBXL__LOG_ERRNOVAL(ctx, LIBXL__LOG_ERROR, rc, 
++            "Slice out of range. Valid values are positive integers.");
++        return ERROR_INVAL;
++    }
++
++    sdom.priority = scinfo->priority;
++    sdom.slice = scinfo->slice;
++    sdom.period = scinfo->period;
++    sdom.deadline = scinfo->deadline;
++
++    rc = xc_sched_fp_domain_set(ctx->xch, domid, &sdom);
++    if ( rc < 0 ) {
++        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "setting domain sched credit");
++        return ERROR_FAIL;
++    }
++
++    return 0;
++}
++    
+ static int trigger_type_from_string(char *trigger_name)
+ {
+     if (!strcmp(trigger_name, "nmi"))
+Binary files xen-4.1.4-org/tools/libxl/.libxl.c.swp and xen-4.1.4-pg/tools/libxl/.libxl.c.swp differ
+diff -urBN xen-4.1.4-org/tools/libxl/libxl.h xen-4.1.4-pg/tools/libxl/libxl.h
+--- xen-4.1.4-org/tools/libxl/libxl.h	2012-12-18 13:54:18.000000000 +0100
++++ xen-4.1.4-pg/tools/libxl/libxl.h	2015-01-06 15:38:06.195486818 +0100
+@@ -514,6 +514,13 @@
+                                   libxl_sched_credit *scinfo);
+ int libxl_sched_credit_domain_set(libxl_ctx *ctx, uint32_t domid,
+                                   libxl_sched_credit *scinfo);
++
++int libxl_sched_fp_schedule_get(libxl_ctx *ctx, libxl_sched_fp *scinfo);
++int libxl_sched_fp_schedule_set(libxl_ctx *ctx, libxl_sched_fp *scinfo);
++
++int libxl_sched_fp_domain_get(libxl_ctx *ctx, uint32_t domid, libxl_sched_fp *scinfo);
++int libxl_sched_fp_domain_set(libxl_ctx *ctx, uint32_t domid, libxl_sched_fp *scinfo);
++
+ int libxl_send_trigger(libxl_ctx *ctx, uint32_t domid,
+                        char *trigger_name, uint32_t vcpuid);
+ int libxl_send_sysrq(libxl_ctx *ctx, uint32_t domid, char sysrq);
+diff -urBN xen-4.1.4-org/tools/libxl/libxl.idl xen-4.1.4-pg/tools/libxl/libxl.idl
+--- xen-4.1.4-org/tools/libxl/libxl.idl	2012-12-18 13:54:18.000000000 +0100
++++ xen-4.1.4-pg/tools/libxl/libxl.idl	2015-01-06 13:52:02.569476062 +0100
+@@ -320,6 +320,14 @@
+     ("cap", integer),
+     ], destructor_fn=None)
+ 
++libxl_sched_fp = Struct("sched_fp", [
++    ("strategy", uint8),
++    ("priority", integer),
++    ("slice", uint64),
++    ("period", uint64),
++    ("deadline", uint64),
++    ], destructor_fn=None)
++
+ libxl_net2info = Struct("net2info", [
+     ("backend", string),
+     ("backend_id", uint32),
+diff -urBN xen-4.1.4-org/tools/libxl/libxl_utils.c xen-4.1.4-pg/tools/libxl/libxl_utils.c
+--- xen-4.1.4-org/tools/libxl/libxl_utils.c	2012-12-18 13:54:18.000000000 +0100
++++ xen-4.1.4-pg/tools/libxl/libxl_utils.c	2014-12-12 15:07:03.479482722 +0100
+@@ -38,6 +38,7 @@
+ 
+ static struct schedid_name schedid_name[] = {
+     { "credit", XEN_SCHEDULER_CREDIT },
++    { "fp", XEN_SCHEDULER_FP },
+     { "sedf", XEN_SCHEDULER_SEDF },
+     { "credit2", XEN_SCHEDULER_CREDIT2 },
+     { NULL, -1 }
+diff -urBN xen-4.1.4-org/tools/libxl/xl_cmdimpl.c xen-4.1.4-pg/tools/libxl/xl_cmdimpl.c
+--- xen-4.1.4-org/tools/libxl/xl_cmdimpl.c	2012-12-18 13:54:19.000000000 +0100
++++ xen-4.1.4-pg/tools/libxl/xl_cmdimpl.c	2015-01-09 14:37:48.136329002 +0100
+@@ -3974,6 +3974,180 @@
+     return 0;
+ }
+ 
++static int sched_fp_schedule_set(libxl_sched_fp *scinfo)
++{
++    int rc;
++     
++    rc = libxl_sched_fp_schedule_set(&ctx, scinfo);
++    if (rc)
++        fprintf(stderr, "libxl_sched_fp_schedule_set failed.\n");
++
++    return rc;
++}
++
++static int sched_fp_domain_get(
++    int domid, libxl_sched_fp *scinfo)
++{
++    int rc;
++    
++    rc = libxl_sched_fp_domain_get(&ctx, domid, scinfo);
++    if (rc)
++        fprintf(stderr, "libxl_sched_fp_domain_get failed.\n");
++
++    return rc;
++}
++
++
++static int sched_fp_domain_set(
++    int domid, libxl_sched_fp *scinfo)
++{
++    int rc;
++
++    rc = libxl_sched_fp_domain_set(&ctx, domid, scinfo);
++    if (rc)
++        fprintf(stderr, "libxl_sched_fp_domain_set failed.\n");
++
++    return rc;
++}
++
++static void sched_fp_domain_output(
++    int domid, libxl_sched_fp *scinfo)
++{
++    char *domname;
++    domname = libxl_domid_to_name(&ctx, domid);
++    printf("%-32s %5d %9u %10u %10u %8i\n",
++        domname,
++        domid,
++        (unsigned int)scinfo->slice,
++        (unsigned int)scinfo->period,
++	(unsigned int)scinfo->deadline,
++	(int)scinfo->priority);
++    free(domname);
++}
++
++
++int main_sched_fp(int argc, char **argv)
++{
++    libxl_sched_fp scinfo;
++    int strategy = 0, priority = 0, period = 0, slice = 0, deadline = 0;
++    int opt, rc;
++    const char *dom = NULL;
++    int opt_S = 0, opt_P = 0, opt_D = 0, opt_p = 0, opt_s = 0;
++    const char *strat = NULL;
++
++    libxl_dominfo *info;
++    int nb_domain, i;
++
++    /* Set default values, otherwise ranmdom values would be set when setting incomplete parameters. */
++    scinfo.strategy = 0;
++    scinfo.period = 0;
++    scinfo.priority = 0;
++    scinfo.deadline = 0;
++    scinfo.slice = 0;
++
++    while ((opt = getopt(argc, argv, "hd:p:P:s:S:D:")) != -1) {
++        switch (opt) {
++            case 'h':
++                help("sched-fp");
++                return 0;
++            case 'd':
++                dom = optarg;
++                break;
++            case 'S':
++                strategy = strtol(optarg, NULL, 10);
++                opt_S = 1;
++                break;
++            case 'p':
++                priority = strtol(optarg, NULL, 10);
++                opt_p = 1;
++                break;
++            case 'P':
++                period = strtol(optarg, NULL, 10);
++                opt_P = 1;
++                break;
++            case 's':
++                slice = strtol(optarg, NULL, 10);
++                opt_s = 1;
++                break;
++            case 'D':
++                deadline = strtol(optarg, NULL, 10);
++                opt_D = 1;
++                break;
++            default:
++                fprintf(stderr, "option `%c` not supported.\n", optopt);
++                break;
++        }
++    }
++    
++    if (!opt_S && !opt_P && !opt_D && !opt_s && !opt_p) {
++        rc = libxl_sched_fp_schedule_get(&ctx, &scinfo);
++        if (rc != 0) {
++            fprintf(stderr, "libxl_sched_fp_schedule_get failed.\n");
++            return 1;
++        }
++        
++        switch (scinfo.strategy) {
++        case 0: strat = "rate-monotonic"; break;
++        case 1: strat = "deadline-monotonic"; break;
++        case 2: strat = "fixed priority"; break;
++        }
++        
++        printf("%s SMP scheduler\n", strat);
++
++        printf("%-33s %4s %-4s %-4s %-4s %-4s\n", "Name", "ID", "Slice(us)", "Period(us)", "Deadline(us)", "Priority");
++        if (!dom) {
++            info = libxl_list_domain(&ctx, &nb_domain);
++            if (!info) {
++                fprintf(stderr, "libxl_domain_infolist failed.\n");
++                return 1;
++            }
++            
++            for (i = 0; i < nb_domain; i++) {
++                rc = sched_fp_domain_get(info[i].domid, &scinfo);
++                if (rc)
++                    return -rc;
++                sched_fp_domain_output(info[i].domid, &scinfo);
++            }
++        } else {
++            find_domain(dom);
++            
++            rc = sched_fp_domain_get(domid, &scinfo);
++            if (rc)
++                return -rc;
++            sched_fp_domain_output(domid, &scinfo);
++        }
++    } else {
++        if (opt_S) {
++            scinfo.strategy = strategy;
++            rc = sched_fp_schedule_set(&scinfo);
++            if (rc)
++                return -rc;
++        }
++
++	    if (dom) 
++            find_domain(dom);
++
++        if (opt_p) 
++            scinfo.priority = priority;
++        if (opt_P)
++            scinfo.period = period;
++        if (opt_s)
++            scinfo.slice = slice;
++        if (opt_D)
++            scinfo.deadline = deadline;
++
++        rc = sched_fp_domain_set(domid, &scinfo);
++        if (rc)
++            return -rc;
++    // TODO: implement setting of scheduling parameters
++        
++    }
++    
++    return 0;
++}
++
++            
++
+ int main_domid(int argc, char **argv)
+ {
+     int opt;
+Binary files xen-4.1.4-org/tools/libxl/.xl_cmdimpl.c.swp and xen-4.1.4-pg/tools/libxl/.xl_cmdimpl.c.swp differ
+diff -urBN xen-4.1.4-org/tools/libxl/xl_cmdtable.c xen-4.1.4-pg/tools/libxl/xl_cmdtable.c
+--- xen-4.1.4-org/tools/libxl/xl_cmdtable.c	2012-12-18 13:54:19.000000000 +0100
++++ xen-4.1.4-pg/tools/libxl/xl_cmdtable.c	2015-01-09 14:36:47.862481002 +0100
+@@ -195,6 +195,18 @@
+       "-w WEIGHT, --weight=WEIGHT     Weight (int)\n"
+       "-c CAP, --cap=CAP              Cap (int)"
+     },
++    { "sched-fp",
++      &main_sched_fp,
++      "Get/set fp scheduler parameters",
++      "[-d <Domain> [-p[=PRIORITY]|-P[=PERIOD]|-s[=SLICE]]|-D[=DEADLINE]] [-S[=STRATEGY]]",
++      "-d DOMAIN, --domain=DOMAIN           Domain to modify\n"
++      "-p PRIORITY, --priority=PRIORITY     Priority of the specified domain (int)\n"
++      "-P PERIOD, --period=PERIOD           Period (int)\n"
++      "-s SLICE, --slice=SLICE              Slice (int)\n"
++      "-S STRATEGY, --strategy=STRATEGY     Strategy to be used by the scheduler (int)\n"
++      "                                      STRATEGY can either be 0 (rate-monotonic), 1 (deadline-monotonic) or 2 (fixed priority).\n"
++      "-D DEADLINE, --deadline=DEADLINE     Deadline (int)\n"
++    },
+     { "domid",
+       &main_domid,
+       "Convert a domain name to domain id",
+diff -urBN xen-4.1.4-org/tools/libxl/xl.h xen-4.1.4-pg/tools/libxl/xl.h
+--- xen-4.1.4-org/tools/libxl/xl.h	2012-12-18 13:54:18.000000000 +0100
++++ xen-4.1.4-pg/tools/libxl/xl.h	2014-12-12 15:12:46.514184722 +0100
+@@ -54,6 +54,7 @@
+ int main_memmax(int argc, char **argv);
+ int main_memset(int argc, char **argv);
+ int main_sched_credit(int argc, char **argv);
++int main_sched_fp(int argc, char** argv);
+ int main_domid(int argc, char **argv);
+ int main_domname(int argc, char **argv);
+ int main_rename(int argc, char **argv);

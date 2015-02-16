@@ -1,0 +1,6 @@
+#!/bin/sh
+# CHECK-BUILD
+
+. ./funcs.sh
+
+has_or_fail xgettext
