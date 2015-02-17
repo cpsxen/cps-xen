@@ -99,7 +99,7 @@ struct fp_vcpu {
     s_time_t min_cputime;
 
     long cputime_log[100];
-    
+    int position; // position in run queue
 };
 
 /*
@@ -113,11 +113,17 @@ struct fp_dom {
     s_time_t  deadline;
 };
 
+struct fp_strategy_conf {
+  int (*compare)(struct fp_vcpu*, struct fp_vcpu*);
+  void (*prio_handler)(struct domain*, int);
+};
+
 /* 
  * System-wide scheduler data
  */
 struct fpsched_private {
 	uint8_t strategy; /* strategy to use (either fixed priority, rate-monotonic or deadline-monotonic) */
+        struct fp_strategy_conf *config;
 };	
 
 //DEBUG info
@@ -191,10 +197,11 @@ static inline void __remove_from_queue(struct fp_vcpu *fpv, struct list_head *li
 	if(__vcpu_on_queue(fpv, list)) list_del_init(&fpv->queue_elem);
 }
 
-static inline void __runq_insert(unsigned int cpu, struct fp_vcpu *fpv)
+static inline void __runq_insert(unsigned int cpu, struct fp_vcpu *fpv, int (*compare)(struct fp_vcpu*, struct fp_vcpu*))
 {
     struct list_head * const runq = RUNQ(cpu);
     struct list_head *iter;
+	int i = 0;
 
     PRINT(1,"CPU %d in runq_insert: \n",cpu);
     if(cpu != fpv->vcpu->processor) return;
@@ -202,21 +209,97 @@ static inline void __runq_insert(unsigned int cpu, struct fp_vcpu *fpv)
 
     list_for_each( iter, runq )
     {
-        const struct fp_vcpu * const iter_fpv = __runq_elem(iter);
-        if ( fpv->priority > iter_fpv->priority )
+        struct fp_vcpu *iter_fpv = __runq_elem(iter);
+        if ( compare (fpv, iter_fpv) )
             break;
     }
     list_add_tail(&fpv->queue_elem, iter);
 
+	list_for_each( iter, runq )
+	{
+		struct fp_vcpu *iter_fpv = __runq_elem(iter);
+		iter_fpv->position = i;
+		printk("Position of Domain in RUNQ on %d %d is: %d \n", cpu, iter_fpv->vcpu->domain->domain_id, iter_fpv->position);
+		i++;
+	} 
+
 }
 
-static void fp_reinsertsort_vcpu(struct vcpu *vc)
+static int __runq_rm_compare(struct fp_vcpu *left, struct fp_vcpu *right) 
+{
+    return left->period < right->period;
+}
+
+static int __runq_dm_compare(struct fp_vcpu *left, struct fp_vcpu *right)
+{
+    return left->deadline < right->deadline;
+}
+
+static int __runq_fp_compare(struct fp_vcpu *left, struct fp_vcpu *right)
+{
+	return left->priority > right->priority;
+}
+
+static void __fp_prio_handler(struct domain *dom, int priority)
+{
+    struct vcpu *v;
+	FPSCHED_DOM(dom)->priority = priority;
+
+	for_each_vcpu(dom,v) {
+		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
+		fpv->priority = priority;
+	}
+}
+
+static void __rm_prio_handler(struct domain *dom, int priority)
+{
+    int posacc = 0;
+	int count = 0;
+	struct vcpu *v;
+
+	for_each_vcpu(dom,v) {
+		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
+		posacc += fpv->position;
+		count++;
+	}
+	
+	priority = VM_DOM0_PRIO - posacc/count;
+	FPSCHED_DOM(dom)->priority = priority;
+	
+	for_each_vcpu(dom,v) {
+		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
+		fpv->priority = priority;
+	}
+}
+
+static void __dm_prio_handler(struct domain *dom, int priority)
+{
+    int posacc = 0;
+	int count = 0;
+	struct vcpu *v;
+
+	for_each_vcpu(dom,v) {
+		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
+		posacc += fpv->position;
+		count++;
+	}
+	
+	priority = VM_DOM0_PRIO - posacc/count;
+	FPSCHED_DOM(dom)->priority = priority;
+	
+	for_each_vcpu(dom,v) {
+		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
+		fpv->priority = priority;
+	}
+}
+
+static void fp_reinsertsort_vcpu(struct vcpu *vc, int (*compare)(struct fp_vcpu*, struct fp_vcpu*))
 {
     const int cpu = vc->processor;
 	struct fp_vcpu *fpv = vc->sched_priv;
     struct list_head * const runq = RUNQ(cpu);
 	__remove_from_queue(fpv, runq);
-    __runq_insert(cpu,fpv);
+    __runq_insert(cpu,fpv, compare);
 }
 
 static int fp_sched_get(const struct scheduler *ops, struct xen_sysctl_fp_schedule *schedule)
@@ -239,12 +322,23 @@ static int fp_sched_set(const struct scheduler *ops, struct xen_sysctl_fp_schedu
     
     /* Addopt the new strategy */
     prv->strategy = schedule->strategy;
+    switch (prv->strategy) {
+        case 0: { prv->config->compare = __runq_rm_compare;
+                  prv->config->prio_handler = __rm_prio_handler;
+                  break; }
+        case 1: { prv->config->compare = __runq_dm_compare;
+                  prv->config->prio_handler = __dm_prio_handler;
+                  break; }
+        case 2: { prv->config->compare = __runq_fp_compare;
+                  prv->config->prio_handler = __fp_prio_handler;
+                }
+    }
     printk("Strategy is now %d\n", prv->strategy);
     
     return 0;
 }
 
-static void fp_sched_set_vm_prio(const struct scheduler *ops, const struct domain *d, int prio) 
+static void fp_sched_set_vm_prio(const struct scheduler *ops, struct domain *d, int prio) 
 {
     struct fp_dom *fpd = FPSCHED_DOM(d);
     int strategy = FPSCHED_PRIV(ops)->strategy;    
@@ -255,13 +349,13 @@ static void fp_sched_set_vm_prio(const struct scheduler *ops, const struct domai
     } else if ( is_idle_domain(d) ) {
         fpd->priority = VM_IDLE_PRIO;
     } else {
-        switch (strategy) {
+        /*switch (strategy) {
             case RM : fpd->priority = VM_DOM0_PRIO - (int)fpd->period / VM_DOM0_PRIO; break;
             case DM : fpd->priority = VM_DOM0_PRIO - (int)fpd->deadline / VM_DOM0_PRIO; break;
             case FP : fpd->priority = prio;
-        }
+        }*/
     }
-
+    
     for_each_vcpu( d, v) 
     {
         struct fp_vcpu *fpv = FPSCHED_VCPU(v);
@@ -269,15 +363,22 @@ static void fp_sched_set_vm_prio(const struct scheduler *ops, const struct domai
         if ( d->domain_id == 0 || is_idle_domain(d) ) {
             fpv->priority = fpd->priority;
         } else {
-            switch (strategy) {
+            /*switch (strategy) {
                 case RM : fpv->priority = VM_DOM0_PRIO - (int)fpd->period / VM_DOM0_PRIO; break;
                 case DM : fpv->priority = VM_DOM0_PRIO - (int)fpd->deadline / VM_DOM0_PRIO; break;
                 case FP : fpv->priority = prio; break;
-		default : printk("unknown strategy");
-            }
+		default : printk("unknown strategy");*/
+
+            //}
         }
-	fp_reinsertsort_vcpu(v);
-    }    
+		if ( strategy != FP ) { 
+			fp_reinsertsort_vcpu(v, FPSCHED_PRIV(ops)->config->compare);
+			FPSCHED_PRIV(ops)->config->prio_handler(d, prio);
+		} else {
+			FPSCHED_PRIV(ops)->config->prio_handler(d, prio);
+			fp_reinsertsort_vcpu(v, FPSCHED_PRIV(ops)->config->compare);
+		}		
+    }   
 } 
 
 static void fp_insert_vcpu(const struct scheduler *ops, struct vcpu *vc)
@@ -285,7 +386,11 @@ static void fp_insert_vcpu(const struct scheduler *ops, struct vcpu *vc)
 	 struct fp_vcpu *fpv = vc->sched_priv;
 
 	 PRINT(1,"in fp_insert_vcpu\n");
-	 if ( !__newvcpu_on_q(fpv) && vcpu_runnable(vc) && !vc->is_running ) __runq_insert(vc->processor, fpv);
+	 if ( !__newvcpu_on_q(fpv) && vcpu_runnable(vc) && !vc->is_running ) {
+		__runq_insert(vc->processor, fpv, FPSCHED_PRIV(ops)->config->compare);
+		if ( FPSCHED_PRIV(ops)->strategy != FP) 
+			FPSCHED_PRIV(ops)->config->prio_handler(vc->domain, 1);
+	 }
 
 }
 
@@ -346,21 +451,30 @@ static int fp_init_domain(const struct scheduler *ops, struct domain *d)
 static int fp_init(struct scheduler *ops)
 {
     struct fpsched_private *prv;
+    struct fp_strategy_conf *conf;
     
     prv = xmalloc(struct fpsched_private);
     if (prv == NULL)
         return -ENOMEM;
+    conf = xmalloc(struct fp_strategy_conf);
+    if (conf == NULL)
+        return -ENOMEM;
     
     memset(prv, 0, sizeof(*prv));
+    memset(prv, 0, sizeof(*conf));
     ops->sched_data = prv;
     
     prv->strategy = 0;
+    prv->config = conf;
+    prv->config->compare = __runq_rm_compare;
+    prv->config->prio_handler = __rm_prio_handler;
      
     return 0;
 }
 
 static void fp_deinit(const struct scheduler *ops)
 {
+    xfree(FPSCHED_PRIV(ops)->config);
     xfree(FPSCHED_PRIV(ops));
 }
 
@@ -525,7 +639,10 @@ static void fp_vcpu_wake(const struct scheduler *ops, struct vcpu *vc)
 	fpv->awake = 1;
 	if ( unlikely(per_cpu(schedule_data, vc->processor).curr == vc) ) return;
 	if(is_idle_vcpu(vc)) return;
-	if (!__vcpu_on_queue(fpv, runq)) __runq_insert(cpu, fpv);
+	if (!__vcpu_on_queue(fpv, runq)) { 
+		__runq_insert(cpu, fpv, FPSCHED_PRIV(ops)->config->compare);
+		FPSCHED_PRIV(ops)->config->prio_handler(vc->domain, fpv->priority);
+	}
 	if ( fpv->priority > cur->priority )cpu_raise_softirq(cpu, SCHEDULE_SOFTIRQ);
 }
 
