@@ -259,13 +259,20 @@ static void __rm_prio_handler(struct domain *dom, int priority)
 	struct vcpu *v;
 	struct fp_dom *fp_dom = FPSCHED_DOM(dom);
 
-	for_each_vcpu(dom,v) {
-		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
-		posacc += fpv->position;
-		count++;
+	if (dom->domain_id == 0) {
+		priority = VM_DOM0_PRIO;
+	} else if ( is_idle_domain(dom) ) {
+		priority = VM_IDLE_PRIO;
+	} else {
+
+		for_each_vcpu(dom,v) {
+			struct fp_vcpu *fpv = FPSCHED_VCPU(v);
+			posacc += fpv->position;
+			count++;
+		}
+		priority = VM_DOM0_PRIO - posacc/count-1;
 	}
 	
-	priority = VM_DOM0_PRIO - posacc/count;
 	fp_dom->priority = priority;
 	
 	for_each_vcpu(dom,v) {
@@ -282,13 +289,20 @@ static void __dm_prio_handler(struct domain *dom, int priority)
 	struct vcpu *v;
 	struct fp_dom *fp_dom = FPSCHED_DOM(dom);
 
-	for_each_vcpu(dom,v) {
-		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
-		posacc += fpv->position;
-		count++;
+	if (dom->domain_id == 0) {
+		priority = VM_DOM0_PRIO;
+	} else if ( is_idle_domain(dom) ) {
+		priority = VM_IDLE_PRIO;
+	} else {
+
+		for_each_vcpu(dom,v) {
+			struct fp_vcpu *fpv = FPSCHED_VCPU(v);
+			posacc += fpv->position;
+			count++;
+		}
+		priority = VM_DOM0_PRIO - posacc/count-1;
 	}
 	
-	priority = VM_DOM0_PRIO - posacc/count;
 	fp_dom->priority = priority;
 	
 	for_each_vcpu(dom,v) {
