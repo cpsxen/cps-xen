@@ -219,7 +219,6 @@ static inline void __runq_insert(unsigned int cpu, struct fp_vcpu *fpv, int (*co
 	{
 		struct fp_vcpu *iter_fpv = __runq_elem(iter);
 		iter_fpv->position = i;
-		printk("Position of Domain in RUNQ on %d %d is: %d \n", cpu, iter_fpv->vcpu->domain->domain_id, iter_fpv->position);
 		i++;
 	} 
 
@@ -243,12 +242,14 @@ static int __runq_fp_compare(struct fp_vcpu *left, struct fp_vcpu *right)
 static void __fp_prio_handler(struct domain *dom, int priority)
 {
     struct vcpu *v;
-	FPSCHED_DOM(dom)->priority = priority;
+	struct fp_dom *fp_dom = FPSCHED_DOM(dom);
+	fp_dom->priority = priority;
 
 	for_each_vcpu(dom,v) {
 		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
 		fpv->priority = priority;
 	}
+	printk("Domain: %d Period: %d Deadline %d Priority: %d",dom->domain_id, (int)fp_dom->period, (int)fp_dom->deadline, fp_dom->priority);
 }
 
 static void __rm_prio_handler(struct domain *dom, int priority)
@@ -256,6 +257,7 @@ static void __rm_prio_handler(struct domain *dom, int priority)
     int posacc = 0;
 	int count = 0;
 	struct vcpu *v;
+	struct fp_dom *fp_dom = FPSCHED_DOM(dom);
 
 	for_each_vcpu(dom,v) {
 		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
@@ -264,12 +266,13 @@ static void __rm_prio_handler(struct domain *dom, int priority)
 	}
 	
 	priority = VM_DOM0_PRIO - posacc/count;
-	FPSCHED_DOM(dom)->priority = priority;
+	fp_dom->priority = priority;
 	
 	for_each_vcpu(dom,v) {
 		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
 		fpv->priority = priority;
 	}
+	printk("Domain: %d Period: %d Deadline %d Priority: %d",dom->domain_id, (int)fp_dom->period, (int)fp_dom->deadline, fp_dom->priority);
 }
 
 static void __dm_prio_handler(struct domain *dom, int priority)
@@ -277,6 +280,7 @@ static void __dm_prio_handler(struct domain *dom, int priority)
     int posacc = 0;
 	int count = 0;
 	struct vcpu *v;
+	struct fp_dom *fp_dom = FPSCHED_DOM(dom);
 
 	for_each_vcpu(dom,v) {
 		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
@@ -285,12 +289,13 @@ static void __dm_prio_handler(struct domain *dom, int priority)
 	}
 	
 	priority = VM_DOM0_PRIO - posacc/count;
-	FPSCHED_DOM(dom)->priority = priority;
+	fp_dom->priority = priority;
 	
 	for_each_vcpu(dom,v) {
 		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
 		fpv->priority = priority;
 	}
+	printk("Domain: %d Period: %d Deadline %d Priority: %d",dom->domain_id, (int)fp_dom->period, (int)fp_dom->deadline, fp_dom->priority);
 }
 
 static void fp_reinsertsort_vcpu(struct vcpu *vc, int (*compare)(struct fp_vcpu*, struct fp_vcpu*))
@@ -348,12 +353,6 @@ static void fp_sched_set_vm_prio(const struct scheduler *ops, struct domain *d, 
         fpd->priority = VM_DOM0_PRIO;    
     } else if ( is_idle_domain(d) ) {
         fpd->priority = VM_IDLE_PRIO;
-    } else {
-        /*switch (strategy) {
-            case RM : fpd->priority = VM_DOM0_PRIO - (int)fpd->period / VM_DOM0_PRIO; break;
-            case DM : fpd->priority = VM_DOM0_PRIO - (int)fpd->deadline / VM_DOM0_PRIO; break;
-            case FP : fpd->priority = prio;
-        }*/
     }
     
     for_each_vcpu( d, v) 
@@ -362,14 +361,6 @@ static void fp_sched_set_vm_prio(const struct scheduler *ops, struct domain *d, 
 
         if ( d->domain_id == 0 || is_idle_domain(d) ) {
             fpv->priority = fpd->priority;
-        } else {
-            /*switch (strategy) {
-                case RM : fpv->priority = VM_DOM0_PRIO - (int)fpd->period / VM_DOM0_PRIO; break;
-                case DM : fpv->priority = VM_DOM0_PRIO - (int)fpd->deadline / VM_DOM0_PRIO; break;
-                case FP : fpv->priority = prio; break;
-		default : printk("unknown strategy");*/
-
-            //}
         }
 		if ( strategy != FP ) { 
 			fp_reinsertsort_vcpu(v, FPSCHED_PRIV(ops)->config->compare);
@@ -434,15 +425,7 @@ static int fp_init_domain(const struct scheduler *ops, struct domain *d)
 
         if ( is_idle_domain(d) ) {
             fp_dom->priority = VM_IDLE_PRIO;
-        } else {
-            switch (FPSCHED_PRIV(ops)->strategy) {
-                case RM : fp_dom->priority = VM_DOM0_PRIO - (int)fp_dom->period / VM_DOM0_PRIO; break;
-                case DM : fp_dom->priority = VM_DOM0_PRIO - (int)fp_dom->deadline / VM_DOM0_PRIO; break;
-                case FP : fp_dom->priority = 1; break;
-		default : printk("unknown strategy");
-            }
-        }
-		    printk("Domain: %d Period: %d Deadline %d Priority: %d",d->domain_id, (int)fp_dom->period, (int)fp_dom->deadline, fp_dom->priority);
+        } 
     }
 
     return 0;
@@ -529,15 +512,7 @@ static void * fp_alloc_vdata(const struct scheduler *ops, struct vcpu *vc, void 
             fpv->deadline = fpv->period;
         	if ( is_idle_domain( vc->domain ) ) {
                 fpv->priority = VM_IDLE_PRIO;
-            } else {
-                switch (FPSCHED_PRIV(ops)->strategy) {
-                    case RM : fpv->priority = VM_DOM0_PRIO - (int)fpv->period / VM_DOM0_PRIO; break;
-                    case DM : fpv->priority = VM_DOM0_PRIO - (int)fpv->deadline / VM_DOM0_PRIO; break;
-                    case FP : fpv->priority = 1; break;
-		    default : printk("unknown strategy");
-                }
-		    printk("Domain: %d Period: %d Deadline %d Priority: %d",vc->domain->domain_id, (int)fpv->period, (int)fpv->deadline, fpv->priority);
-            }
+            } 
 		fpv->slice = is_idle_domain(vc->domain) ? MICROSECS(0) : VM_STANDARD_SLICE;
         }
     }
@@ -668,15 +643,16 @@ static int fp_adjust(const struct scheduler *ops, struct domain *d, struct xen_d
 	    	op->u.fp.period = fp_dom->period * 0.001;
             op->u.fp.deadline = fp_dom->deadline * 0.001;
     }else{
-          /*if ( op->u.fp.priority > 0 )
-          	  {
-                fp_sched_set_vm_prio(ops, d, op->u.fp.priority);
-           }*/
  	   if ( op->u.fp.period > 0 ) {
 		fp_dom->period = op->u.fp.period*1000;
+                if ( FPSCHED_PRIV(ops)->strategy == RM ) 
+                  fp_dom->deadline = fp_dom->period;
 		for_each_vcpu ( d, v )
         	  	  {
-        		  FPSCHED_VCPU(v)->period = op->u.fp.period*1000;
+                            struct fp_vcpu *fpv = FPSCHED_VCPU(v);
+        		  fpv->period = op->u.fp.period*1000;
+                          if ( FPSCHED_PRIV(ops)->strategy == RM )
+                              fpv->deadline = fpv->period;
 			  }
 	   }
  	   if ( op->u.fp.slice > 0 ) {
