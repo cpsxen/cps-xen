@@ -315,11 +315,11 @@ static void __dm_prio_handler(struct domain *dom, int priority)
 static uint32_t fp_get_wcload_on_cpu(int cpu)
 {
     struct list_head * const runq = RUNQ(cpu);
-    struct list_head * const iter;
+    struct list_head *iter;
     uint32_t load = 0;
 
     list_for_each( iter, runq ) {
-        const struct fp_vcpu * const iter_fpv = FPSCHED_VCPU(__runq_elem(iter));
+        const struct fp_vcpu * const iter_fpv = __runq_elem(iter);
         load += iter_fpv->slice*100/iter_fpv->period;
     }
     return load;
@@ -635,7 +635,6 @@ static void fp_vcpu_wake(const struct scheduler *ops, struct vcpu *vc)
 {
 	struct fp_vcpu * const fpv = FPSCHED_VCPU(vc);
 	const unsigned int cpu = vc->processor;
-	struct list_head * const runq = RUNQ(cpu);
 	struct fp_vcpu * const cur = FPSCHED_VCPU(per_cpu(schedule_data, cpu).curr);
 
 	PRINT(1,"in fp_vcpu_wake ");

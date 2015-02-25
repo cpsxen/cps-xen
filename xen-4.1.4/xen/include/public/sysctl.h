@@ -563,6 +563,7 @@ DEFINE_XEN_GUEST_HANDLE(xen_sysctl_arinc653_schedule_t);
 
 struct xen_sysctl_fp_schedule {
     uint8_t strategy;
+    uint32_t load;
 };
 
 typedef struct xen_sysctl_fp_schedule xen_sysctl_fp_schedule_t;
