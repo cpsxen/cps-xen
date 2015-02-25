@@ -116,3 +116,31 @@ xc_sched_fp_schedule_get(
     
     return rc;
 }
+
+int xc_sched_fp_get_wcload_on_cpu(
+    xc_interface *xch, uint32_t cpu, struct xen_sysctl_fp_schedule *schedule)
+{
+    int rc;
+    DECLARE_SYSCTL;
+    DECLARE_HYPERCALL_BOUNCE(
+        schedule,
+        sizeof(*schedule),
+        XC_HYPERCALL_BUFFER_BOUNCE_OUT);
+
+    if ( xc_hypercall_bounce_pre(xch, schedule) ) {
+        return -1;
+    }
+
+    sysctl.cmd = XEN_SYSCTL_scheduler_op;
+    sysctl.u.scheduler_op.cpu_pool_id = 0;
+    sysctl.u.scheduler_op.cpu = cpu;
+    sysctl.u.scheduler_op.sched_id = XEN_SCHEDULER_FP;
+    sysctl.u.scheduler_op.cmd = XEN_SYSCTL_SCHEDOP_getinfo;
+    set_xen_guest_handle(sysctl.u.scheduler_op.u.sched_fp.schedule,
+        schedule);
+
+    rc = do_sysctl(xch, &sysctl);
+    xc_hypercall_bounce_post(xch, schedule);
+
+    return rc;
+}

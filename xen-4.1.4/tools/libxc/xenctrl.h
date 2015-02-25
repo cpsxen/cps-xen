@@ -688,6 +688,8 @@ int xc_sched_fp_schedule_set(xc_interface *xch,
 
 int xc_sched_fp_schedule_get(xc_interface *xch,
 				struct xen_sysctl_fp_schedule *schedule);
+int xc_sched_fp_get_wcload_on_cpu(xc_interface *xch,
+                                uint32_t cpu, struct xen_sysctl_fp_schedule *schedule);
 
 int
 xc_sched_arinc653_schedule_set(

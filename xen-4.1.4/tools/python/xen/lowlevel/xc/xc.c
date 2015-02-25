@@ -1705,6 +1705,19 @@ static PyObject *pyxc_sched_fp_schedule_get(XcObject *self)
     return Py_BuildValue("{s:i}", "strategy", schedule.strategy);
 }
 
+static PyObject *pyxc_sched_fp_get_wcload_on_cpu(XcObject *self, PyObject *args)
+{
+    uint32_t cpu = 0;
+    xen_sysctl_fp_schedule_t schedule;
+
+    if ( !PyArg_ParseTuple(args, "i", &cpu) )
+        return NULL;
+
+    if ( xc_sched_fp_get_wcload_on_cpu(self->xc_handle, cpu, &schedule) != 0 )
+        return pyxc_error_to_exception(self->xc_handle);
+
+    return Py_BuildValue("{s:i}", "load", schedule.load);
+}
 
 static PyObject *pyxc_domain_setmaxmem(XcObject *self, PyObject *args)
 {
@@ -2676,7 +2689,13 @@ static PyMethodDef pyxc_methods[] = {
       " strategy:   [int]   strategy the scheduler shall use (e.g 0 for rate-monotonic,\n"
       " 1 for deadline-monotonic or 2 for fixed priority).\n"
       "Returns: [int] 0 on success; -1 on error.\n"}, 
-      
+    
+    { "sched_fp_get_wcload_on_cpu",
+      (PyCFunction)pyxc_sched_fp_get_wcload_on_cpu,
+      METH_KEYWORDS, "\n"
+     "Get the worst-case load of the given cpu.\n"
+     " cpu      [int]:    cpu whose worst-case load is requested.\n"
+     "Returns: [int] worst-case load of desired cpu.\n"},   
 
     { "evtchn_alloc_unbound", 
       (PyCFunction)pyxc_evtchn_alloc_unbound,

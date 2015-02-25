@@ -194,7 +194,7 @@ static inline void __runq_remove(struct fp_vcpu *fpv)
 static inline void __remove_from_queue(struct fp_vcpu *fpv, struct list_head *list)
 {
 	PRINT(1, "in remove_from_queue\n");
-	if(__vcpu_on_queue(fpv, list)) list_del_init(&fpv->queue_elem);
+	if(__newvcpu_on_q(fpv)) list_del_init(&fpv->queue_elem);
 }
 
 static inline void __runq_insert(unsigned int cpu, struct fp_vcpu *fpv, int (*compare)(struct fp_vcpu*, struct fp_vcpu*))
@@ -249,7 +249,7 @@ static void __fp_prio_handler(struct domain *dom, int priority)
 		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
 		fpv->priority = priority;
 	}
-	printk("Domain: %d Period: %d Deadline %d Priority: %d",dom->domain_id, (int)fp_dom->period, (int)fp_dom->deadline, fp_dom->priority);
+	printk("Domain: %d Period: %d Deadline %d Priority: %d\n",dom->domain_id, (int)fp_dom->period, (int)fp_dom->deadline, fp_dom->priority);
 }
 
 static void __rm_prio_handler(struct domain *dom, int priority)
@@ -279,7 +279,7 @@ static void __rm_prio_handler(struct domain *dom, int priority)
 		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
 		fpv->priority = priority;
 	}
-	printk("Domain: %d Period: %d Deadline %d Priority: %d",dom->domain_id, (int)fp_dom->period, (int)fp_dom->deadline, fp_dom->priority);
+	printk("Domain: %d Period: %d Deadline %d Priority: %d\n",dom->domain_id, (int)fp_dom->period, (int)fp_dom->deadline, fp_dom->priority);
 }
 
 static void __dm_prio_handler(struct domain *dom, int priority)
@@ -309,8 +309,21 @@ static void __dm_prio_handler(struct domain *dom, int priority)
 		struct fp_vcpu *fpv = FPSCHED_VCPU(v);
 		fpv->priority = priority;
 	}
-	printk("Domain: %d Period: %d Deadline %d Priority: %d",dom->domain_id, (int)fp_dom->period, (int)fp_dom->deadline, fp_dom->priority);
+	printk("Domain: %d Period: %d Deadline %d Priority: %d\n",dom->domain_id, (int)fp_dom->period, (int)fp_dom->deadline, fp_dom->priority);
 }
+
+static uint32_t fp_get_wcload_on_cpu(int cpu)
+{
+    struct list_head * const runq = RUNQ(cpu);
+    struct list_head * const iter;
+    uint32_t load = 0;
+
+    list_for_each( iter, runq ) {
+        const struct fp_vcpu * const iter_fpv = FPSCHED_VCPU(__runq_elem(iter));
+        load += iter_fpv->slice*100/iter_fpv->period;
+    }
+    return load;
+} 
 
 static void fp_reinsertsort_vcpu(struct vcpu *vc, int (*compare)(struct fp_vcpu*, struct fp_vcpu*))
 {
@@ -567,6 +580,7 @@ static int fp_adjust_global(const struct scheduler *ops, struct xen_sysctl_sched
         break;
     case XEN_SYSCTL_SCHEDOP_getinfo:
         rc = fp_sched_get(ops, &local_sched);
+        local_sched.load = fp_get_wcload_on_cpu(sc->cpu);
         copy_to_guest(sc->u.sched_fp.schedule, &local_sched, 1);
         break;
     }
@@ -628,7 +642,7 @@ static void fp_vcpu_wake(const struct scheduler *ops, struct vcpu *vc)
 	fpv->awake = 1;
 	if ( unlikely(per_cpu(schedule_data, vc->processor).curr == vc) ) return;
 	if(is_idle_vcpu(vc)) return;
-	if (!__vcpu_on_queue(fpv, runq)) { 
+	if (!__newvcpu_on_q(fpv)) { 
 		__runq_insert(cpu, fpv, FPSCHED_PRIV(ops)->config->compare);
 		FPSCHED_PRIV(ops)->config->prio_handler(vc->domain, fpv->priority);
 	}
