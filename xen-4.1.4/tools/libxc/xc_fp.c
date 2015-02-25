@@ -132,7 +132,7 @@ int xc_sched_fp_get_wcload_on_cpu(
     }
 
     sysctl.cmd = XEN_SYSCTL_scheduler_op;
-    sysctl.u.scheduler_op.cpu_pool_id = 0;
+    sysctl.u.scheduler_op.cpupool_id = 0;
     sysctl.u.scheduler_op.cpu = cpu;
     sysctl.u.scheduler_op.sched_id = XEN_SCHEDULER_FP;
     sysctl.u.scheduler_op.cmd = XEN_SYSCTL_SCHEDOP_getinfo;
