@@ -226,17 +226,25 @@ static inline void __runq_insert(unsigned int cpu, struct fp_vcpu *fpv, int (*co
 
 static int __runq_rm_compare(struct fp_vcpu *left, struct fp_vcpu *right) 
 {
-    return left->period < right->period;
+    	printk("In __runq_rm_compare\n");
+	printk("Left is at address: %p\n",(void*)left);
+	printk("Right is at address: %p\n",(void*)right);
+	printk("Left priority is: %d\n",left->priority);
+	printk("Left period is: %ld\n", (long int)left->period);
+	printk("Right priority is: %d\n", right->priority);
+	printk("Right period is: %ld\n",(long int)right->period);
+	printk("Return value: %d\n", (left->period < right->period));
+	return left->period <= right->period;
 }
 
 static int __runq_dm_compare(struct fp_vcpu *left, struct fp_vcpu *right)
 {
-    return left->deadline < right->deadline;
+    return left->deadline <= right->deadline;
 }
 
 static int __runq_fp_compare(struct fp_vcpu *left, struct fp_vcpu *right)
 {
-	return left->priority > right->priority;
+	return left->priority >= right->priority;
 }
 
 static void __fp_prio_handler(struct domain *dom, int priority)
@@ -641,11 +649,16 @@ static void fp_vcpu_wake(const struct scheduler *ops, struct vcpu *vc)
 	fpv->awake = 1;
 	if ( unlikely(per_cpu(schedule_data, vc->processor).curr == vc) ) return;
 	if(is_idle_vcpu(vc)) return;
-	if (!__newvcpu_on_q(fpv)) { 
+	if ( unlikely(__newvcpu_on_q(fpv))) {
+            //printk("Domain %i.%i is already on some queue\n", vc->domain->domain_id, vc->vcpu_id);
+            return;
+        }
+        if (!__newvcpu_on_q(fpv)) {
 		__runq_insert(cpu, fpv, FPSCHED_PRIV(ops)->config->compare);
 		FPSCHED_PRIV(ops)->config->prio_handler(vc->domain, fpv->priority);
 	}
-	if ( fpv->priority > cur->priority )cpu_raise_softirq(cpu, SCHEDULE_SOFTIRQ);
+	if ( FPSCHED_PRIV(ops)->config->compare(fpv,cur) ) { printk("Raising SOFTIRQ\n");
+	cpu_raise_softirq(cpu, SCHEDULE_SOFTIRQ);}
 }
 
 static void fp_vcpu_remove(const struct scheduler *ops, struct vcpu *vc)
