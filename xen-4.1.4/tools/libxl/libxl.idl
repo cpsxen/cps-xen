@@ -326,6 +326,7 @@ libxl_sched_fp = Struct("sched_fp", [
     ("slice", uint64),
     ("period", uint64),
     ("deadline", uint64),
+    ("load",uint32),
     ], destructor_fn=None)
 
 libxl_net2info = Struct("net2info", [

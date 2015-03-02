@@ -2633,6 +2633,22 @@ int libxl_sched_credit_domain_set(libxl_ctx *ctx, uint32_t domid, libxl_sched_cr
     return 0;
 }
 
+int libxl_sched_fp_get_wcload_on_cpu(libxl_ctx *ctx, int cpu, libxl_sched_fp *scinfo)
+{
+    struct xen_sysctl_fp_schedule schedule;
+    int rc;
+
+    rc = xc_sched_fp_get_wcload_on_cpu(ctx->xch, cpu, &schedule);
+    if (rc != 0) {
+        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "getting worst-case load on cpu");
+        return ERROR_FAIL;
+    }
+
+    scinfo->load = schedule.load;
+
+    return 0;
+}
+
 int libxl_sched_fp_schedule_get(libxl_ctx *ctx, libxl_sched_fp *scinfo)
 {
     struct xen_sysctl_fp_schedule schedule;

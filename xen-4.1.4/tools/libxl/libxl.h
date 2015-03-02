@@ -521,6 +521,7 @@ int libxl_sched_fp_schedule_set(libxl_ctx *ctx, libxl_sched_fp *scinfo);
 int libxl_sched_fp_domain_get(libxl_ctx *ctx, uint32_t domid, libxl_sched_fp *scinfo);
 int libxl_sched_fp_domain_set(libxl_ctx *ctx, uint32_t domid, libxl_sched_fp *scinfo);
 
+int libxl_sched_fp_get_wcload_on_cpu(libxl_ctx *ctx, int cpu, libxl_sched_fp *scinfo);
 int libxl_send_trigger(libxl_ctx *ctx, uint32_t domid,
                        char *trigger_name, uint32_t vcpuid);
 int libxl_send_sysrq(libxl_ctx *ctx, uint32_t domid, char sysrq);

@@ -3557,6 +3557,35 @@ int main_vcpulist(int argc, char **argv)
     return 0;
 }
 
+static int is_cpu_of_dom0(int cpu)
+{
+    int i, nb_vcpu;
+    
+    libxl_vcpuinfo *vcpuinfo;
+
+    if ( !(vcpuinfo = libxl_list_vcpu(&ctx, 0, &nb_vcpu, &i)))  {
+        fprintf(stderr,"libxl_list_vcpu failed.\n");
+    }
+    for (; nb_vcpu > 0; --nb_vcpu, ++vcpuinfo) {
+        if ( vcpuinfo->cpu == cpu )
+            return 1;
+    }
+    return 0;
+}
+
+static int test_for_dom0_cpu(libxl_cpumap *cpumap)
+{
+    int i;
+    
+    libxl_for_each_cpu(i, *cpumap) {
+        if (libxl_cpumap_test(cpumap, i)) {
+            if ( is_cpu_of_dom0(i) )
+                return 1;
+        }
+    }
+    return 0;
+}
+
 static void vcpupin(const char *d, const char *vcpu, char *cpu)
 {
     libxl_vcpuinfo *vcpuinfo;
@@ -3605,6 +3634,11 @@ static void vcpupin(const char *d, const char *vcpu, char *cpu)
     }
     else {
         memset(cpumap.map, -1, cpumap.size);
+    }
+
+    if ( test_for_dom0_cpu(&cpumap) ) {
+        fprintf(stderr, "Tried to pin non-Dom0-VCPU to cpu used by Dom0, but Dom0 needs a dedicated cpu.\n Please pin Domain %s to another cpu.\n",d);
+        return;
     }
 
     if (vcpuid != -1) {
@@ -4025,6 +4059,26 @@ static void sched_fp_domain_output(
     free(domname);
 }
 
+static void print_cpu_warnings(void)
+{
+    libxl_topologyinfo info;
+    libxl_sched_fp scinfo;
+
+    if (libxl_get_topologyinfo(&ctx, &info)) {
+        fprintf(stderr, "libxl_get_topologyinfo failed.\n");
+        return;
+    }
+
+    for (int i = 0; i < info.coremap.entries; i++) {
+        if (info.coremap.array[i] != LIBXL_CPUARRAY_INVALID_ENTRY) {
+            if ( !(libxl_sched_fp_get_wcload_on_cpu(&ctx, info.coremap.array[i], &scinfo))) {
+                if ( scinfo.load > 100 ) 
+                    printf("Warning on CPU %d: Load is higher than 1.0. Deadlines may be missed. \n Please consider rescheduling some domains manually.\n",i);
+            }
+        }
+    }
+}
+    
 
 int main_sched_fp(int argc, char **argv)
 {
@@ -4092,6 +4146,7 @@ int main_sched_fp(int argc, char **argv)
         case 2: strat = "fixed priority"; break;
         }
         
+        print_cpu_warnings();
         printf("%s SMP scheduler\n", strat);
 
         printf("%-33s %4s %-4s %-4s %-4s %-4s\n", "Name", "ID", "Slice(us)", "Period(us)", "Deadline(us)", "Priority");
