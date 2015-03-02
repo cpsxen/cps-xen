@@ -1975,11 +1975,11 @@ def xm_sched_fp(args):
                
     def print_schedule_warning():
         xc = xen.lowlevel.xc.xc()   
-        max_cpus = xc.topologyinfo['max_cpu_index']
+        max_cpus = xc.topologyinfo()['max_cpu_index']
         for cpu in range(0,max_cpus):
-            wcl = xc.sched_fp_get_wcload_on_cpu(cpu)
+            wcl = xc.sched_fp_get_wcload_on_cpu(cpu)['load']
             if wcl > 100:
-                print("Warning on cpu %d: To high load detected. Deadlines may be missed.\n Please consider rescheduling the domains.\n" % cpu)
+                print("Warning on cpu %d: Load is higher than 1.0. Deadlines may be missed.\n Please consider rescheduling the domains.\n" % cpu)
  
     check_sched_type('fp')
         
@@ -2026,7 +2026,8 @@ def xm_sched_fp(args):
         sched = ["rate-monotonic", "deadline-monotonic", "fixed priority"]
 
 	# print header if we aren't setting any parameters
-        print '%s SMP scheduler' % (sched[sched_info['strategy']]) 
+        print_schedule_warning()
+	print '%s SMP scheduler' % (sched[sched_info['strategy']]) 
         print '%-33s %4s %-4s %-4s %-4s %-4s' % ('Name','ID','Slice(us)','Period(us)', 'Deadline(us)' ,'Priority')
         
         for d in doms:
