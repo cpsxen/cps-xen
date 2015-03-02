@@ -1568,12 +1568,23 @@ def xm_vcpu_pin(args):
         cpus.sort()
         return ",".join(map(str, cpus))
 
+    def test_for_pinning_on_dom0_cpu(cpus, dom):
+        acc = False
+        for cpu in cpus:
+            if is_cpu_of_dom0(cpu):
+                acc = acc or True
+        return acc and (dom != '0' or dom != 'Domain-0')
+
     dom  = args[0]
     vcpu = args[1]
     if args[2] == 'all':
         cpumap = cpu_make_map('0-63')
     else:
         cpumap = cpu_make_map(args[2])
+
+    if test_for_pinning_on_dom0_cpu(map(int, cpumap.split(',')),dom):
+        err("Tried to pin another domain on a cpu used by Dom0, but Dom0 needs a dedicated cpu.\n Please pin Domain %s to another cpu." % dom)
+        return
 
     if serverType == SERVER_XEN_API:
         server.xenapi.VM.add_to_VCPUs_params_live(
@@ -1935,6 +1946,17 @@ def xm_sched_credit2(args):
             if result != 0:
                 err(str(result))
 
+def is_cpu_of_dom0(cpu):
+    xc = xen.lowlevel.xc.xc()   
+    maxvcpus = xc.domain_getinfo(0,1)[0]['online_vcpus']
+    
+    for vcpu in range(0,maxvcpus):
+        dom0cpu = xc.vcpu_getinfo(0,vcpu)['cpu']
+        if cpu == dom0cpu:
+            return True
+
+    return False    
+
 def xm_sched_fp(args):
     """Get/Set options for Fixed Priority Scheduler."""
     xenapi_unsupported()
@@ -1950,7 +1972,15 @@ def xm_sched_fp(args):
         info['period']  = info['period']
         info['deadline'] = info['deadline']
         print( ("%(name)-32s %(domid)5s %(slice)9.1f %(period)10.1f %(deadline)10.1f %(priority)8d") % info)
-                
+               
+    def print_schedule_warning():
+        xc = xen.lowlevel.xc.xc()   
+        max_cpus = xc.topologyinfo['max_cpu_index']
+        for cpu in range(0,max_cpus):
+            wcl = xc.sched_fp_get_wcload_on_cpu(cpu)
+            if wcl > 100:
+                print("Warning on cpu %d: To high load detected. Deadlines may be missed.\n Please consider rescheduling the domains.\n" % cpu)
+ 
     check_sched_type('fp')
         
     try:
@@ -2025,7 +2055,8 @@ def xm_sched_fp(args):
             # update values in case of call to set
             print_fp(fp_info)
     elif strategy is not None:
-        result = xc.sched_fp_schedule_set(strategy)
+        print("Setting strategy")
+	result = xc.sched_fp_schedule_set(strategy)
         if result != 0:
             err(str(result))
     else:

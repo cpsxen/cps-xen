@@ -648,7 +648,7 @@ static void fp_vcpu_wake(const struct scheduler *ops, struct vcpu *vc)
 	PRINT(1,"in fp_vcpu_wake ");
 	fpv->awake = 1;
 	if ( unlikely(per_cpu(schedule_data, vc->processor).curr == vc) ) return;
-	if(is_idle_vcpu(vc)) return;
+	if( unlikely(is_idle_vcpu(vc)) ) return;
 	if ( unlikely(__newvcpu_on_q(fpv))) {
             //printk("Domain %i.%i is already on some queue\n", vc->domain->domain_id, vc->vcpu_id);
             return;
