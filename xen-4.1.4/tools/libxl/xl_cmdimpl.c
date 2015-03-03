@@ -3557,6 +3557,7 @@ int main_vcpulist(int argc, char **argv)
     return 0;
 }
 
+/* Returns 1 if cpu is used by Dom0, 0 otherwise. */
 static int is_cpu_of_dom0(int cpu)
 {
     int i, nb_vcpu;
@@ -3573,6 +3574,7 @@ static int is_cpu_of_dom0(int cpu)
     return 0;
 }
 
+/* Tests if one of the mapped cpus is used by Dom0 and returns 1 if so. */
 static int test_for_dom0_cpu(libxl_cpumap *cpumap)
 {
     int i;
@@ -3636,7 +3638,11 @@ static void vcpupin(const char *d, const char *vcpu, char *cpu)
         memset(cpumap.map, -1, cpumap.size);
     }
 
-    if ( test_for_dom0_cpu(&cpumap) ) {
+    /* 
+     * When using the FP-Scheduler test if the intended pinning would 
+     * affect Dom0 because the FP-Scheduler expects a dedicated core for Dom0 on its own.
+     */
+    if ( libxl_get_sched_id(&ctx) == XEN_SCHEDULER_FP && test_for_dom0_cpu(&cpumap) ) {
         fprintf(stderr, "Tried to pin non-Dom0-VCPU to cpu used by Dom0, but Dom0 needs a dedicated cpu.\n Please pin Domain %s to another cpu.\n",d);
         return;
     }
@@ -4059,6 +4065,8 @@ static void sched_fp_domain_output(
     free(domname);
 }
 
+/* Print a warning when hypothetical worst-case-load of a cpu may be higher
+ * than 1.0 (100%) and deadlines may be missed using the FP-Scheduler. */
 static void print_cpu_warnings(void)
 {
     libxl_topologyinfo info;
@@ -4194,8 +4202,6 @@ int main_sched_fp(int argc, char **argv)
         rc = sched_fp_domain_set(domid, &scinfo);
         if (rc)
             return -rc;
-    // TODO: implement setting of scheduling parameters
-        
     }
     
     return 0;

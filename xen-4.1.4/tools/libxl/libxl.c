@@ -2633,6 +2633,7 @@ int libxl_sched_credit_domain_set(libxl_ctx *ctx, uint32_t domid, libxl_sched_cr
     return 0;
 }
 
+/* Get the hypothetical worst-case load of cpu cpu. */
 int libxl_sched_fp_get_wcload_on_cpu(libxl_ctx *ctx, int cpu, libxl_sched_fp *scinfo)
 {
     struct xen_sysctl_fp_schedule schedule;
@@ -2649,6 +2650,7 @@ int libxl_sched_fp_get_wcload_on_cpu(libxl_ctx *ctx, int cpu, libxl_sched_fp *sc
     return 0;
 }
 
+/* Get the currently used scheduling strategy and store it in scinfo. */
 int libxl_sched_fp_schedule_get(libxl_ctx *ctx, libxl_sched_fp *scinfo)
 {
     struct xen_sysctl_fp_schedule schedule;
@@ -2665,6 +2667,7 @@ int libxl_sched_fp_schedule_get(libxl_ctx *ctx, libxl_sched_fp *scinfo)
     return 0;
 }
 
+/* Set the new strategy to be used by the FP-Scheduler. */
 int libxl_sched_fp_schedule_set(libxl_ctx *ctx, libxl_sched_fp *scinfo)
 {
     struct xen_sysctl_fp_schedule schedule;
@@ -2686,6 +2689,7 @@ int libxl_sched_fp_schedule_set(libxl_ctx *ctx, libxl_sched_fp *scinfo)
     return 0;
 }
 
+/* Get domain-parameters for the FP-Scheduler. */
 int libxl_sched_fp_domain_get(libxl_ctx *ctx, uint32_t domid, libxl_sched_fp *scinfo)
 {
     struct xen_domctl_sched_fp sdom;
@@ -2705,6 +2709,7 @@ int libxl_sched_fp_domain_get(libxl_ctx *ctx, uint32_t domid, libxl_sched_fp *sc
     return 0;
 }
 
+/* Set domain-parameters for the FP-Scheduler. */
 int libxl_sched_fp_domain_set(libxl_ctx *ctx, uint32_t domid, libxl_sched_fp *scinfo)
 {
     struct xen_domctl_sched_fp sdom;
