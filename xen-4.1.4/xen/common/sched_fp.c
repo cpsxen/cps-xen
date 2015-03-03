@@ -1,5 +1,6 @@
 /* Preemptive RM/DM/Fixed-Priority Scheduler of Xen
  *
+ * by Boguslaw Jablkowski, Michael Müller (C)  2014 Technische Universität Dortmund
  * based on code of Credit and SEDF Scheduler
  *
  * This scheduler allows the usage of three scheduling strategies:
