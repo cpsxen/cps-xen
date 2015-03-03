@@ -869,7 +869,6 @@ fp_do_schedule (const struct scheduler *ops, s_time_t now,
     if (!is_idle_vcpu (current))
     {
         cur->cputime += now - cur->last_time_scheduled;
-        fp_stats (cur, now);
     }
     update_queue (now, runq);
 
