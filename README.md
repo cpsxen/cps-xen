@@ -2,9 +2,9 @@
 
 ### What is CPS-Xen?
 
-The CPS-Xen project aims at providing a deterministic, dependable and fault tolerant platform for executing safety-critical applications for monitoring, protection or control of cyber-physical systems (CPS). CPS-Xen is based upon the Xen-Hypervisor [1]: - a popular open-source Virtual Machine Monitor (VMM). CPS-Xen extends Xen by implementing established real-time scheduling algorithms and provides additional features for the execution and monitoring of the safety-critical applications.
+The CPS-Xen project aims at providing a deterministic, dependable and fault tolerant platform for executing safety-critical applications for monitoring, protection or control of cyber-physical systems (CPS). CPS-Xen is based upon the Xen-Hypervisor [1] - a popular open-source Virtual Machine Monitor (VMM). CPS-Xen extends Xen by implementing established real-time scheduling algorithms and provides additional features for the execution and monitoring of the safety-critical applications.
 
-CPS-Xen 1.0 is based upon Xen 4.1.4 version. This is due to the usability issues we experienced with Remus(a high availability extension )[2,3]: and its integration into Xen. At that time, we decided to work with the XM-toolstack. However, the scheduling interface is implemented both for the XL- and XM-toolstack.
+CPS-Xen 1.0 is based upon Xen 4.1.4 version. This is due to the usability issues we experienced with Remus(a high availability extension )[2,3] and its integration into Xen. At that time, we decided to work with the XM-toolstack. However, the scheduling interface is implemented both for the XL- and XM-toolstack.
 
 ### How to install?
 
@@ -36,5 +36,7 @@ http://ess.cs.tu-dortmund.de/EN/Software/CPSXen/index.html
 
 ### References:
 [1] http://www.xenproject.org/ 
+
 [2] http://remusha.wikidot.com/ 
+
 [3] http://wiki.xen.org/wiki/Remus 
