@@ -22,13 +22,13 @@ The current CPS-Xen version allows to switch on the fly between the following th
 
 ### How to use?
 
-You can set the fp scheduler parameters on the fly as follows:
+You can set the fp scheduler parameters on the fly as follows (xl or xm toolstack):
 
-Usage: xl [-v] sched-fp [-d <Domain> [-p[=PRIORITY]|-P[=PERIOD]|-s[=SLICE]]|-D[=DEADLINE]] [-S[=STRATEGY]]
+> xl [-v] sched-fp [-d <Domain> [-p[=PRIORITY]|-P[=PERIOD]|-s[=SLICE]]|-D[=DEADLINE]] [-S[=STRATEGY]]
 
-Options:
+>Options:
 
-- -d DOMAIN,   --domain=DOMAIN         Domain to modify
+>- -d DOMAIN,   --domain=DOMAIN         Domain to modify
 - -p PRIORITY, --priority=PRIORITY     Priority of the specified domain (int)
 - -P PERIOD,   --period=PERIOD         Period (int)
 - -s SLICE,    --slice=SLICE           Slice (int)
