@@ -28,12 +28,12 @@ Usage: xl [-v] sched-fp [-d <Domain> [-p[=PRIORITY]|-P[=PERIOD]|-s[=SLICE]]|-D[=
 
 Options:
 
--d DOMAIN,   --domain=DOMAIN         Domain to modify
--p PRIORITY, --priority=PRIORITY     Priority of the specified domain (int)
--P PERIOD,   --period=PERIOD         Period (int)
--s SLICE,    --slice=SLICE           Slice (int)
--S STRATEGY, --strategy=STRATEGY     Strategy to be used by the scheduler (int). STRATEGY can either be 0 (rate-monotonic), 1 (deadline-monotonic) or 2 (fixed priority).
--D DEADLINE, --deadline=DEADLINE     Deadline (int)
+- -d DOMAIN,   --domain=DOMAIN         Domain to modify
+- -p PRIORITY, --priority=PRIORITY     Priority of the specified domain (int)
+- -P PERIOD,   --period=PERIOD         Period (int)
+- -s SLICE,    --slice=SLICE           Slice (int)
+- -S STRATEGY, --strategy=STRATEGY     Strategy to be used by the scheduler (int). STRATEGY can either be 0 (rate-monotonic), 1 (deadline-monotonic) or 2 (fixed priority).
+- -D DEADLINE, --deadline=DEADLINE     Deadline (int)
 
 In case of the rate-monotonic and deadline-monotonic policies the priorities will be calculated automatically:
 * if a perioid respectively a deadline changes 
