@@ -10,6 +10,8 @@ CPS-Xen 1.0 is based upon Xen 4.1.4 version. This is due to the usability issues
 
 The Xen version inside the xen-4.1.4 directory already contains the current CPS-Xen patches. To install CPS-Xen follow the standard build and installation instructions described in xen-4.1.4/README. For additional information please refer to http://wiki.xenproject.org/wiki/Compiling_Xen_From_Source. All of the applied patches are included in the main directory and divided into core patches - reflecting the changes made to the xen hypervisor code - and tools patches - related to the adjustments in the toolstacks.
 
+Make sure to have "sched=fp" in the grub command line.
+
 ### Features of CPS-Xen 1.0 
 
 The current CPS-Xen version allows to switch on the fly between the following three preemptive scheduling policies:
@@ -20,7 +22,22 @@ The current CPS-Xen version allows to switch on the fly between the following th
 
 ### How to use?
 
-TODO
+You can set the fp scheduler parameters on the fly as follows:
+
+Usage: xl [-v] sched-fp [-d <Domain> [-p[=PRIORITY]|-P[=PERIOD]|-s[=SLICE]]|-D[=DEADLINE]] [-S[=STRATEGY]]
+
+Options:
+
+-d DOMAIN,   --domain=DOMAIN         Domain to modify
+-p PRIORITY, --priority=PRIORITY     Priority of the specified domain (int)
+-P PERIOD,   --period=PERIOD         Period (int)
+-s SLICE,    --slice=SLICE           Slice (int)
+-S STRATEGY, --strategy=STRATEGY     Strategy to be used by the scheduler (int). STRATEGY can either be 0 (rate-monotonic), 1 (deadline-monotonic) or 2 (fixed priority).
+-D DEADLINE, --deadline=DEADLINE     Deadline (int)
+
+In case of the rate-monotonic and deadline-monotonic policies the priorities will be calculated automatically:
+* if a perioid respectively a deadline changes 
+* if the strategy has switched from fixed priority
 
 ### Conditions of Use
 
