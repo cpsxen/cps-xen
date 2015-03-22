@@ -35,7 +35,7 @@ You can set the scheduler parameters on the fly as follows (xl or xm toolstack):
 - -S STRATEGY, --strategy=STRATEGY     Strategy to be used by the scheduler (int). STRATEGY can either be 0 (rate-monotonic), 1 (deadline-monotonic) or 2 (fixed priority).
 - -D DEADLINE, --deadline=DEADLINE     Deadline (int)
 
-The priorities will be calculated automatically:
+The priorities will be (re)calculated automatically:
 * if a period respectively a deadline has been changed 
 * if a strategy has been switched
 * if a new VM has been instantiated
