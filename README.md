@@ -40,7 +40,11 @@ The priorities will be (re)calculated automatically:
 * if a strategy has been switched
 * if a new VM has been instantiated
 
-Since Linux Kernel version 3.12 a new netback model has been introduced which utilizes multiple kernel threads for packet processing. Each VM has beed given a dedicated process named *vif[Domain ID]*. Through the POSIX interface (*chrt* command) in *Dom0* the scheduling priority of this process can be synchronized with the VMM-scheduler priority of the corresponding VM. This step will provide lower latencies and jitter as well as tighter response time bounds for the given VM. 
+Since Linux Kernel version 3.12 a new netback model has been introduced which utilizes multiple kernel threads for packet processing. Each VM has been given a dedicated process named *vif[Domain ID]*. Through the POSIX interface (*chrt* command) in *Dom0* the scheduling priority of this process can be synchronized with the VMM-scheduler priority of the corresponding VM. This step will provide lower latencies and jitter as well as tighter response time bounds for the given VM. 
+
+### Citing CPS-Xen
+
+Please cite the CPS-Xen paper [4] in any research that uses CPS-Xen. 
 
 ### Conditions of Use
 
@@ -60,3 +64,5 @@ http://ess.cs.tu-dortmund.de/EN/Software/CPSXen/index.html
 [2] http://remusha.wikidot.com/ 
 
 [3] http://wiki.xen.org/wiki/Remus 
+
+[4] B. Jablkowski and O. Spinczyk. CPS-Xen: A virtual execution environment for cyber-physical applications. In 28th International Conference on Architecture of Computing Systems (ARCS '15), Porto, Portugal, Mar. 2015. Springer-Verlag
