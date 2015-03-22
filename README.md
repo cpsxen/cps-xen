@@ -40,7 +40,7 @@ The priorities will be calculated automatically:
 * if a strategy has been switched
 * if a new VM has been instantiated
 
-Since Linux Kernel version 3.12 a new netback model has been introduced which utilizes multiple kernel threads for packet processing. Each VM has beed given a dedicated process *vif*. The scheduling priority of this process can be synchronized with the VMM-scheduler priority of the corresponding VM. This step will provide lower latencies and jitter as well as tighter response time bounds for the given VM. 
+Since Linux Kernel version 3.12 a new netback model has been introduced which utilizes multiple kernel threads for packet processing. Each VM has beed given a dedicated process named *vif[Domain ID]*. The scheduling priority of this process can be synchronized with the VMM-scheduler priority of the corresponding VM. This step will provide lower latencies and jitter as well as tighter response time bounds for the given VM. 
 
 ### Conditions of Use
 
