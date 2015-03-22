@@ -22,7 +22,7 @@ The current CPS-Xen version allows to switch on the fly between the following th
 
 ### How to use?
 
-You can set the fp scheduler parameters on the fly as follows (xl or xm toolstack):
+You can set the scheduler parameters on the fly as follows (xl or xm toolstack):
 
 > xl [-v] sched-fp [-d <Domain> [-p[=PRIORITY]|-P[=PERIOD]|-s[=SLICE]]|-D[=DEADLINE]] [-S[=STRATEGY]]
 
@@ -35,9 +35,12 @@ You can set the fp scheduler parameters on the fly as follows (xl or xm toolstac
 - -S STRATEGY, --strategy=STRATEGY     Strategy to be used by the scheduler (int). STRATEGY can either be 0 (rate-monotonic), 1 (deadline-monotonic) or 2 (fixed priority).
 - -D DEADLINE, --deadline=DEADLINE     Deadline (int)
 
-In case of the rate-monotonic and deadline-monotonic policies the priorities will be calculated automatically:
-* if a perioid respectively a deadline changes 
-* if the strategy has switched from fixed priority
+The priorities will be calculated automatically:
+* if a period respectively a deadline has been changed 
+* if a strategy has been switched
+* if a new VM has been instantiated
+
+Since Linux Kernel version 3.12 a new netback model has been introduced which utilizes multiple kernel threads for packet processing. Each VM has beed given a dedicated process *vif*. The scheduling priority of this process can be synchronized with the VMM-scheduler priority of the corresponding VM. This step will provide lower latencies and jitter as well as tighter response time bounds for the given VM. 
 
 ### Conditions of Use
 
