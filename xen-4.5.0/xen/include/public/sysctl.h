@@ -570,6 +570,15 @@ struct xen_sysctl_arinc653_schedule {
 typedef struct xen_sysctl_arinc653_schedule xen_sysctl_arinc653_schedule_t;
 DEFINE_XEN_GUEST_HANDLE(xen_sysctl_arinc653_schedule_t);
 
+
+struct xen_sysctl_fp_schedule {
+    uint8_t strategy;
+    uint32_t load;
+};
+
+typedef struct xen_sysctl_fp_schedule xen_sysctl_fp_schedule_t;
+DEFINE_XEN_GUEST_HANDLE(xen_sysctl_fp_schedule_t);
+
 struct xen_sysctl_credit_schedule {
     /* Length of timeslice in milliseconds */
 #define XEN_SYSCTL_CSCHED_TSLICE_MAX 1000
@@ -590,12 +599,16 @@ DEFINE_XEN_GUEST_HANDLE(xen_sysctl_credit_schedule_t);
 struct xen_sysctl_scheduler_op {
     uint32_t cpupool_id; /* Cpupool whose scheduler is to be targetted. */
     uint32_t sched_id;   /* XEN_SCHEDULER_* (domctl.h) */
+    uint32_t cpu;        /* CPU whose scheduler is to be targetted. */
     uint32_t cmd;        /* XEN_SYSCTL_SCHEDOP_* */
     union {
         struct xen_sysctl_sched_arinc653 {
             XEN_GUEST_HANDLE_64(xen_sysctl_arinc653_schedule_t) schedule;
         } sched_arinc653;
         struct xen_sysctl_credit_schedule sched_credit;
+        struct xen_sysctl_sched_fp {
+            XEN_GUEST_HANDLE_64(xen_sysctl_fp_schedule_t) schedule;
+        } sched_fp;
     } u;
 };
 typedef struct xen_sysctl_scheduler_op xen_sysctl_scheduler_op_t;
