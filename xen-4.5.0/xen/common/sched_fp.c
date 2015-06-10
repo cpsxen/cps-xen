@@ -49,7 +49,7 @@
 #define WAITQ(cpu)      (&(CPU_INFO(cpu)->waitq))
 #define LIST(_vcpu) (&_vcpu->queue_elem)
 #define FP_CPUONLINE(_pool)                                             \
-    (((_pool) == NULL) ? &cpupool_free_cpus : &(_pool)->cpu_valid)
+    (((_pool) == NULL) ? &cpupool_free_cpus : (_pool)->cpu_valid)
 #define FPSCHED_VCPU(_vcpu)  ((struct fp_vcpu *) (_vcpu)->sched_priv)
 #define FPSCHED_DOM(_dom)    ((struct fp_dom *) (_dom)->sched_priv)
 #define VM_SCHED_PRIO(_prio, _fpv) (FPSCHED_PRIV(ops)->strategy != FP? VM_STANDARD_PRIO((_fpv)) : (_prio))
@@ -653,9 +653,10 @@ static int fp_pick_cpu (const struct scheduler *ops, struct vcpu *v)
 
     PRINT (1, "CPU %d in fp_pick_cpu\n", v->processor);
 
-    online = FP_CPUONLINE (v->domain->cpupool);
-    cpus_and (online_affinity, v->cpu_affinity, *online);
-    return first_cpu (online_affinity);
+    online = cpupool_scheduler_cpumask(v->domain->cpupool);
+    cpumask_and(&online_affinity, v->cpu_hard_affinity, online);
+    return cpumask_cycle(v->vcpu_id % cpumask_weight(&online_affinity) - 1,
+                        &online_affinity);
 }
 
 static int
@@ -780,9 +781,9 @@ fp_adjust (const struct scheduler *ops, struct domain *d,
     if (op->cmd == XEN_DOMCTL_SCHEDOP_getinfo)
     {
         op->u.fp.priority = fp_dom->priority;
-        op->u.fp.slice = fp_dom->slice * 0.001;
-        op->u.fp.period = fp_dom->period * 0.001;
-        op->u.fp.deadline = fp_dom->deadline * 0.001;
+        op->u.fp.slice = fp_dom->slice;
+        op->u.fp.period = fp_dom->period;
+        op->u.fp.deadline = fp_dom->deadline;
     }
     else
     {

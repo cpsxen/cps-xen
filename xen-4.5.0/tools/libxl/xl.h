@@ -68,6 +68,7 @@ int main_sched_credit(int argc, char **argv);
 int main_sched_credit2(int argc, char **argv);
 int main_sched_sedf(int argc, char **argv);
 int main_sched_rtds(int argc, char **argv);
+int main_sched_fp(int argc, char **argv);
 int main_domid(int argc, char **argv);
 int main_domname(int argc, char **argv);
 int main_rename(int argc, char **argv);

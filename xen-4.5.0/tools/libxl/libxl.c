@@ -5858,6 +5858,139 @@ static int sched_rtds_domain_set(libxl__gc *gc, uint32_t domid,
     return 0;
 }
 
+/* Get domain-parameters for the FP-Scheduler. */
+static int sched_fp_domain_get(libxl__gc *gc, uint32_t domid, libxl_domain_sched_params *scinfo)
+{
+    struct xen_domctl_sched_fp sdom;
+    int rc;
+    
+    rc = xc_sched_fp_domain_get(CTX->xch, domid, &sdom);
+    if (rc != 0) {
+        LIBXL__LOG_ERRNO(CTX, LIBXL__LOG_ERROR, "getting domain sched fp");
+        return ERROR_FAIL;
+    }
+    
+    libxl_domain_sched_params_init(scinfo);
+
+    scinfo->sched = LIBXL_SCHEDULER_FP;
+    scinfo->priority = sdom.priority;
+    scinfo->period = sdom.period / 1000;
+    scinfo->slice = sdom.slice / 1000;
+    scinfo->deadline = sdom.deadline / 1000;
+
+    return 0;
+}
+
+/* Set domain-parameters for the FP-Scheduler. */
+static int sched_fp_domain_set(libxl__gc *gc, uint32_t domid, const libxl_domain_sched_params *scinfo)
+{
+    struct xen_domctl_sched_fp sdom;
+    xc_domaininfo_t domaininfo;
+    int rc;
+
+    rc = xc_domain_getinfolist(CTX->xch, domid, 1, &domaininfo);
+    if (rc <  0) {
+        LIBXL__LOG_ERRNO(CTX, LIBXL__LOG_ERROR, "getting domain info list");
+        return ERROR_FAIL;
+    }
+    if (rc != 1 || domaininfo.domain != domid)
+        return ERROR_INVAL;
+
+    if (scinfo->period < 0) {
+        LIBXL__LOG_ERRNOVAL(CTX, LIBXL__LOG_ERROR, rc, 
+           "Period out of range. Valid values are positive integers.");
+        return ERROR_INVAL;
+    }
+
+    if (scinfo->deadline < 0) {
+        LIBXL__LOG_ERRNOVAL(CTX, LIBXL__LOG_ERROR, rc, 
+            "Deadline out of range. Valid values are positive integers.");
+        return ERROR_INVAL;
+   }
+    
+    if (scinfo->slice < 0) {
+        LIBXL__LOG_ERRNOVAL(CTX, LIBXL__LOG_ERROR, rc, 
+            "Slice out of range. Valid values are positive integers.");
+        return ERROR_INVAL;
+    }
+
+    if (scinfo->priority < 0 || scinfo->priority >= LIBXL_DOMAIN_SCHED_PARAM_PRIORITY_MAX) {
+        LIBXL__LOG_ERRNOVAL(CTX, LIBXL__LOG_ERROR, rc,
+            "Priority out of range. Valid values are between 0 and 999.");
+        return ERROR_INVAL;
+    }
+
+    sdom.priority = scinfo->priority;
+    sdom.slice = scinfo->slice;
+    sdom.period = scinfo->period;
+    sdom.deadline = scinfo->deadline;
+
+    rc = xc_sched_fp_domain_set(CTX->xch, domid, &sdom);
+    if ( rc < 0 ) {
+        LIBXL__LOG_ERRNO(CTX, LIBXL__LOG_ERROR, "setting domain sched credit");
+        return ERROR_FAIL;
+    }
+
+    return 0;
+}
+
+/* Get the currently used scheduling strategy and store it in scinfo. */
+int libxl_sched_fp_schedule_get(libxl_ctx *ctx, uint32_t poolid, libxl_sched_fp_params *scinfo)
+{
+    struct xen_sysctl_fp_schedule schedule;
+    int rc;
+
+    rc = xc_sched_fp_schedule_get(ctx->xch, poolid, &schedule);
+    if (rc != 0) {
+        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "setting schedule sched fp");
+        return ERROR_FAIL;
+    }
+    
+    scinfo->strategy = schedule.strategy;
+    
+    return 0;
+}
+
+/* Set the new strategy to be used by the FP-Scheduler. */
+int libxl_sched_fp_schedule_set(libxl_ctx *ctx, uint32_t poolid, libxl_sched_fp_params *scinfo)
+{
+    struct xen_sysctl_fp_schedule schedule;
+    int rc;
+    
+    if (scinfo->strategy > 2 || scinfo->strategy < 0) {
+        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "Unknown strategy. Valid values are 0 for rate-monotonic, 1 for deadline-monotonic or 2 for fixed priority.");
+        return ERROR_INVAL;
+    }
+    
+    schedule.strategy = scinfo->strategy;
+    rc = xc_sched_fp_schedule_set(ctx->xch, poolid, &schedule);
+
+    if (rc != 0) {
+        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "setting schedule sched fp");
+        return ERROR_FAIL;
+    }
+    
+    return 0;
+}
+
+
+/* Get the hypothetical worst-case load of cpu cpu. */
+int libxl_sched_fp_get_wcload_on_cpu(libxl_ctx *ctx, int cpu, libxl_sched_fp_params *scinfo)
+{
+    struct xen_sysctl_fp_schedule schedule;
+    int rc;
+
+    rc = xc_sched_fp_get_wcload_on_cpu(ctx->xch, cpu, &schedule);
+    if (rc != 0) {
+        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "getting worst-case load on cpu");
+        return ERROR_FAIL;
+    }
+
+    scinfo->load = schedule.load;
+
+    return 0;
+}
+
 int libxl_domain_sched_params_set(libxl_ctx *ctx, uint32_t domid,
                                   const libxl_domain_sched_params *scinfo)
 {
@@ -5883,6 +6016,9 @@ int libxl_domain_sched_params_set(libxl_ctx *ctx, uint32_t domid,
         break;
     case LIBXL_SCHEDULER_RTDS:
         ret=sched_rtds_domain_set(gc, domid, scinfo);
+        break;
+    case LIBXL_SCHEDULER_FP:
+        ret=sched_fp_domain_set(gc, domid, scinfo);
         break;
     default:
         LOG(ERROR, "Unknown scheduler");
@@ -5916,6 +6052,9 @@ int libxl_domain_sched_params_get(libxl_ctx *ctx, uint32_t domid,
         break;
     case LIBXL_SCHEDULER_RTDS:
         ret=sched_rtds_domain_get(gc, domid, scinfo);
+        break;
+    case LIBXL_SCHEDULER_FP:
+        ret=sched_fp_domain_get(gc, domid, scinfo);
         break;
     default:
         LOG(ERROR, "Unknown scheduler");
