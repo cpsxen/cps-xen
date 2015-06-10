@@ -526,6 +526,8 @@ struct cmd_spec cmd_table[] = {
       "                        Works only in unsafe mode.\n"
       "-n                      Disable network output buffering. Works only in unsafe mode.\n"
       "-d                      Disable disk replication. Works only in unsafe mode."
+      "-E                      Use event-driven instead of periodic checkpointing. Needs DomU support."
+      "-p                      When -E is activated poll for events instead of blocking.\n" 
     },
 #endif
     { "devd",

@@ -13,9 +13,13 @@
  * GNU Lesser General Public License for more details.
  */
 
+#define _POSIX_C_SOURCE 200809L
 #include "libxl_osdeps.h" /* must come before any other headers */
 
 #include "libxl_internal.h"
+
+#include <time.h>
+#include <inttypes.h>
 
 extern const libxl__remus_device_instance_ops remus_device_nic;
 extern const libxl__remus_device_instance_ops remus_device_drbd_disk;
@@ -25,7 +29,22 @@ static const libxl__remus_device_instance_ops *remus_ops[] = {
     NULL,
 };
 
+static const char *srcfile = "tools/libxl/libxl_remus_device.c";
 /*----- helper functions -----*/
+static long gettime_ms(void);
+
+static long gettime_ms(void) {
+    long ms;
+    time_t sec;
+    struct timespec spec;
+
+    clock_gettime(CLOCK_REALTIME, &spec);
+
+    sec = spec.tv_sec;
+    ms = spec.tv_nsec / 1.0e6;
+
+    return 1000*(long)sec + ms;
+}
 
 static int init_device_subkind(libxl__remus_devices_state *rds)
 {
@@ -165,6 +184,8 @@ static void device_setup_iterate(libxl__egc *egc, libxl__ao_device *aodev)
     libxl__remus_device *dev = CONTAINER_OF(aodev, *dev, aodev);
     EGC_GC;
 
+    fprintf(stderr, "In %s:device_setup_iterate\n",srcfile);
+
     if (aodev->rc != ERROR_REMUS_DEVICE_NOT_SUPPORTED &&
         aodev->rc != ERROR_REMUS_DEVOPS_DOES_NOT_MATCH)
         /* might be success or disaster */
@@ -213,6 +234,7 @@ static void all_devices_setup_cb(libxl__egc *egc,
                                  libxl__multidev *multidev,
                                  int rc)
 {
+    fprintf(stderr,"In %s:all_devices_setup_cb\n",srcfile);
     STATE_AO_GC(multidev->ao);
 
     /* Convenience aliases */
@@ -227,6 +249,7 @@ void libxl__remus_devices_teardown(libxl__egc *egc,
 {
     int i;
     libxl__remus_device *dev;
+    fprintf(stderr, "In %s:libxl__remus_devices_teardown\n",srcfile);
 
     STATE_AO_GC(rds->ao);
 
@@ -249,6 +272,7 @@ static void devices_teardown_cb(libxl__egc *egc,
                                 int rc)
 {
     int i;
+    fprintf(stderr, "In %s:devices_teardown_cb\n",srcfile);
 
     STATE_AO_GC(multidev->ao);
 

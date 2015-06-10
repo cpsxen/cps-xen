@@ -7943,7 +7943,7 @@ int main_remus(int argc, char **argv)
     r_info.interval = 200;
     libxl_defbool_setdefault(&r_info.blackhole, false);
 
-    SWITCH_FOREACH_OPT(opt, "Fbundi:s:N:e", NULL, "remus", 2) {
+    SWITCH_FOREACH_OPT(opt, "Fbundi:s:N:eEp", NULL, "remus", 2) {
     case 'i':
         r_info.interval = atoi(optarg);
         break;
@@ -7971,6 +7971,18 @@ int main_remus(int argc, char **argv)
     case 'e':
         daemonize = 0;
         break;
+    case 'E':
+        libxl_defbool_set(&r_info.event_driven, true);
+        break;
+    case 'p': {
+        if (libxl_defbool_val(r_info.event_driven))
+            libxl_defbool_set(&r_info.polling, true);
+        else {
+            fprintf(stderr, "Polling can only be used in conjunction with event-driven checkpointing.\n");
+            exit(-1);
+        }
+        break;
+              }
     }
 
     domid = find_domain(argv[optind]);

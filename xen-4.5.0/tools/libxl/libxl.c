@@ -882,6 +882,28 @@ int libxl_domain_remus_start(libxl_ctx *ctx, libxl_domain_remus_info *info,
     if (libxl_defbool_val(info->diskbuf))
         rds->device_kind_flags |= (1 << LIBXL__DEVICE_KIND_VBD);
 
+    if (libxl_defbool_val(info->event_driven)) {
+        // Check if DomU has support for event-driven checkpointing
+        xs_transaction_t t=0;
+        int trc = 0;
+        rc = libxl__xs_transaction_start(gc, &t);
+        char *dompath = libxl__xs_get_dompath(gc, domid);
+        statepath = libxl__sprintf(gc, "%s/data/ha", dompath);
+        if (trc) {
+            LOG(ERROR, "Remus: Failed to check DomU support");
+            rc = ERROR_FAIL;
+            goto out;
+        }
+        if (!libxl__xs_read(gc, t, statepath)) {
+            libxl__xs_transaction_abort(gc, &t);
+            LOG(ERROR, "Remus: Event-driven checkpointing not supported by domain. Aborting.");
+            rc = ERROR_FAIL;
+            goto out;
+        }
+        libxl__xs_transaction_abort(gc, &t);
+        dss->statepath = statepath;
+    }
+    
     rds->ao = ao;
     rds->domid = domid;
     rds->callback = libxl__remus_setup_done;

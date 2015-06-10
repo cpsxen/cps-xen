@@ -2798,6 +2798,7 @@ struct libxl__domain_suspend_state {
     libxl_domain_type type;
     int live;
     int debug;
+    char *statepath;
     const libxl_domain_remus_info *remus;
     /* private */
     libxl__ev_evtchn guest_evtchn;
@@ -2807,6 +2808,7 @@ struct libxl__domain_suspend_state {
     int guest_responded;
     libxl__xswait_state pvcontrol;
     libxl__ev_xswatch guest_watch;
+    libxl__ev_xswatch cpsremus_watch;
     libxl__ev_time guest_timeout;
     const char *dm_savefile;
     libxl__remus_devices_state rds;
@@ -3257,6 +3259,7 @@ _hidden const char *libxl__device_model_savefile(libxl__gc *gc, uint32_t domid);
 
 static inline void libxl__ctx_lock(libxl_ctx *ctx) {
     int r = pthread_mutex_lock(&ctx->lock);
+    //printf("%d\n",r);
     assert(!r);
 }
 

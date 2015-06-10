@@ -209,7 +209,10 @@ int main(int argc, char **argv)
     const char *mode = *++argv;
     assert(mode);
 
+    fprintf(stderr,"In tools/libxl/libxl_save_helper.c:main()\n");
+
     if (!strcmp(mode,"--save-domain")) {
+        fprintf(stderr,"In tools/libxl/libxl_save_helper.c:main:mode==--save-domain\n");
 
         int io_fd =                atoi(NEXTARG);
         uint32_t dom =             strtoul(NEXTARG,0,10);

@@ -1682,7 +1682,8 @@ static void remus_devices_commit_cb(libxl__egc *egc,
                                     int rc);
 static void remus_next_checkpoint(libxl__egc *egc, libxl__ev_time *ev,
                                   const struct timeval *requested_abs);
-
+static void cpsremus_next_checkpoint(libxl__egc *egc, libxl__ev_xswatch *ev, const char *watch_patch, const char *event_path);
+ 
 static void libxl__remus_domain_checkpoint_callback(void *data)
 {
     libxl__save_helper_state *shs = data;
@@ -1741,11 +1742,20 @@ static void remus_devices_commit_cb(libxl__egc *egc,
      * continue execution.
      */
 
-    /* Set checkpoint interval timeout */
-    rc = libxl__ev_time_register_rel(gc, &dss->checkpoint_timeout,
-                                     remus_next_checkpoint,
-                                     dss->interval);
+    if (libxl_defbool_val(dss->remus->event_driven) && !libxl_defbool_val(dss->remus->polling)) {
+        /* Use event-driven checkpointing */
+        if (!libxl__ev_xswatch_isregistered(&dss->cpsremus_watch)) {
+            printf("Registering xswatch on statepath: %s\n", dss->statepath);
+            libxl__ev_xswatch_register(gc, &dss->cpsremus_watch, cpsremus_next_checkpoint, dss->statepath);
+        } else printf("Watch already registered. Continueing ...\n"); 
+    } else {
+        /* Use periodic checkpointing */
 
+        /* Set checkpoint interval timeout */
+        rc = libxl__ev_time_register_rel(gc, &dss->checkpoint_timeout,
+                                         remus_next_checkpoint,
+                                         dss->interval);
+    }
     if (rc)
         goto out;
 
@@ -1753,6 +1763,15 @@ static void remus_devices_commit_cb(libxl__egc *egc,
 
 out:
     libxl__xc_domain_saverestore_async_callback_done(egc, &dss->shs, 0);
+}
+
+static void cpsremus_next_checkpoint(libxl__egc *egc, libxl__ev_xswatch *ev, const char *watch_path, const char *event_path) {
+    libxl__domain_suspend_state *dss = CONTAINER_OF(ev, *dss, cpsremus_watch);
+
+    STATE_AO_GC(dss->ao);
+    
+    fprintf(stderr, "In cpsremus_next_checkpoint\n");
+    libxl__xc_domain_saverestore_async_callback_done(egc, &dss->shs, 1);
 }
 
 static void remus_next_checkpoint(libxl__egc *egc, libxl__ev_time *ev,
@@ -1768,7 +1787,22 @@ static void remus_next_checkpoint(libxl__egc *egc, libxl__ev_time *ev,
      * (xc_domain_save.c). in order to continue executing the infinite loop
      * (suspend, checkpoint, resume) in xc_domain_save().
      */
-    libxl__xc_domain_saverestore_async_callback_done(egc, &dss->shs, 1);
+    if (libxl_defbool_val(dss->remus->polling)) {
+        xs_transaction_t t = 0;
+        if (!libxl__xs_transaction_start(gc, &t)) {
+            int state = atoi(libxl__xs_read(gc, t, dss->statepath));
+            if (state > 0) {
+                libxl__xs_write(gc, t, dss->statepath, "%d", 0);
+                libxl__xc_domain_saverestore_async_callback_done(egc, &dss->shs, 1);
+            } else {
+                libxl__ev_time_register_rel(gc, &dss->checkpoint_timeout,
+                    remus_next_checkpoint, dss->interval);
+           }
+            libxl__xs_transaction_commit(gc, &t);
+        }
+    } else
+        libxl__xc_domain_saverestore_async_callback_done(egc, &dss->shs, 1);
+    
 }
 
 /*----- main code for suspending, in order of execution -----*/
@@ -1788,10 +1822,13 @@ void libxl__domain_suspend(libxl__egc *egc, libxl__domain_suspend_state *dss)
     libxl__srm_save_autogen_callbacks *const callbacks =
         &dss->shs.callbacks.save.a;
 
+	fprintf(stderr,"In tools/libxl/libxl_dom.c:libxl__domain_suspend\n");
+
     logdirty_init(&dss->logdirty);
     libxl__xswait_init(&dss->pvcontrol);
     libxl__ev_evtchn_init(&dss->guest_evtchn);
     libxl__ev_xswatch_init(&dss->guest_watch);
+    libxl__ev_xswatch_init(&dss->cpsremus_watch);
     libxl__ev_time_init(&dss->guest_timeout);
 
     switch (type) {
