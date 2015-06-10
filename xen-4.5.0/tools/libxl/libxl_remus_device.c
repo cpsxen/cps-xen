@@ -31,20 +31,6 @@ static const libxl__remus_device_instance_ops *remus_ops[] = {
 
 static const char *srcfile = "tools/libxl/libxl_remus_device.c";
 /*----- helper functions -----*/
-static long gettime_ms(void);
-
-static long gettime_ms(void) {
-    long ms;
-    time_t sec;
-    struct timespec spec;
-
-    clock_gettime(CLOCK_REALTIME, &spec);
-
-    sec = spec.tv_sec;
-    ms = spec.tv_nsec / 1.0e6;
-
-    return 1000*(long)sec + ms;
-}
 
 static int init_device_subkind(libxl__remus_devices_state *rds)
 {

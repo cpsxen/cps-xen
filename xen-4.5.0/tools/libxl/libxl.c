@@ -829,6 +829,7 @@ int libxl_domain_remus_start(libxl_ctx *ctx, libxl_domain_remus_info *info,
 {
     AO_CREATE(ctx, domid, ao_how);
     libxl__domain_suspend_state *dss;
+    char *statepath = NULL;
     int rc;
 
     libxl_domain_type type = libxl__domain_type(gc, domid);
@@ -842,6 +843,8 @@ int libxl_domain_remus_start(libxl_ctx *ctx, libxl_domain_remus_info *info,
     libxl_defbool_setdefault(&info->compression, true);
     libxl_defbool_setdefault(&info->netbuf, true);
     libxl_defbool_setdefault(&info->diskbuf, true);
+    libxl_defbool_setdefault(&info->event_driven, false);
+    libxl_defbool_setdefault(&info->polling, false);
 
     if (!libxl_defbool_val(info->allow_unsafe) &&
         (libxl_defbool_val(info->blackhole) ||
@@ -864,6 +867,7 @@ int libxl_domain_remus_start(libxl_ctx *ctx, libxl_domain_remus_info *info,
     dss->live = 1;
     dss->debug = 0;
     dss->remus = info;
+    dss->statepath = NULL;
 
     assert(info);
 
