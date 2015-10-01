@@ -7937,6 +7937,8 @@ int main_remus(int argc, char **argv)
     pid_t child = -1;
     uint8_t *config_data;
     int config_len;
+    pid_t hb_child = -1;
+    char *runhb = NULL;
 
     memset(&r_info, 0, sizeof(libxl_domain_remus_info));
     /* Defaults */
@@ -8006,6 +8008,8 @@ int main_remus(int argc, char **argv)
                          ssh_command, host,
                          daemonize ? "" : " -e") < 0)
                 return 1;
+            if (asprintf(&runhb, "exec /usr/local/bin/heartbeat_launcher %s 1", host) < 0)
+                return 1; 
         }
 
         save_domain_core_begin(domid, NULL, &config_data, &config_len);
@@ -8015,6 +8019,13 @@ int main_remus(int argc, char **argv)
                     "none supplied - cannot start remus.\n");
             exit(1);
         }
+
+        hb_child = fork();
+
+        if (!hb_child) {
+            if (system(runhb) < 0)
+              return 1;
+        } 
 
         child = create_migration_child(rune, &send_fd, &recv_fd);
 
