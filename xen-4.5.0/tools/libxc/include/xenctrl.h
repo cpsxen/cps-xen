@@ -34,6 +34,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <semaphore.h>
 #include <xen/xen.h>
 #include <xen/domctl.h>
 #include <xen/physdev.h>
@@ -131,6 +132,10 @@ enum xc_error_code {
 };
 
 typedef enum xc_error_code xc_error_code;
+
+/* CPS-Remus specific global variables */
+extern int cpsremus_do_failover; /* indicator that failover situation has occured */
+extern sem_t sem_cpsremus_fo;    /* semaphore to protect shared indicator variable cpsremus_do_failover */
 
 
 /*

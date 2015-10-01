@@ -40,6 +40,7 @@
 #include <unistd.h>
 #include <assert.h>
 #include <inttypes.h>
+#include <signal.h>
 
 #include "libxl.h"
 
@@ -198,7 +199,26 @@ static void complete(int retval) {
     exit(0);
 }
 
+static void remus_failover_handler(int sig) {
+    cpsremus_do_failover = 1;
+}
+
 static struct restore_callbacks helper_restore_callbacks;
+
+static void helper_register_sighandler(void) {
+    struct sigaction sa;
+    
+    sa.sa_handler = remus_failover_handler;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+
+    if (sigaction(SIGUSR1, &sa, NULL) == -1) {
+        fprintf(stderr, "Failed to register failover signal handler.\n");
+        exit(-1);
+    }
+
+    sem_init(&sem_cpsremus_fo, 1, 1);
+}
 
 int main(int argc, char **argv)
 {
@@ -251,6 +271,7 @@ int main(int argc, char **argv)
         assert(!*++argv);
 
         helper_setcallbacks_restore(&helper_restore_callbacks, cbflags);
+        helper_register_sighandler();
 
         unsigned long store_mfn = 0;
         unsigned long console_mfn = 0;

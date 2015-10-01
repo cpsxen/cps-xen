@@ -11,11 +11,13 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU Lesser General Public License for more details.
  */
+#include <spawn.h>
 
 #include "libxl_osdeps.h"
 
 #include "libxl_internal.h"
 
+extern char** environ;
 /* stream_fd is as from the caller (eventually, the application).
  * It may be 0, 1 or 2, in which case we need to dup it elsewhere.
  * The actual fd value is not included in the supplied argnums; rather
@@ -224,11 +226,14 @@ static void run_helper(libxl__egc *egc, libxl__save_helper_state *shs,
                     args[0], (char**)args, 0);
     }
 
+    LOGE(WARN,"PID of save_helper is %i\n", (int)pid);
+
     libxl__carefd_close(childs_pipes[0]);
     libxl__carefd_close(childs_pipes[1]);
 
     rc = libxl__ev_fd_register(gc, &shs->readable, helper_stdout_readable,
                                libxl__carefd_fd(shs->pipes[1]), POLLIN|POLLPRI);
+
     if (rc) goto out;
     return;
 

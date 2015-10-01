@@ -67,18 +67,29 @@ struct restore_ctx {
 #define HEARTBEAT_MS 1000
 
 #ifndef __MINIOS__
+int cpsremus_do_failover = 0;
+sem_t sem_cpsremus_fo;
+/*
+static int check_failover(void) {
+    int failover;
+    sem_wait(&sem_cpsremus_fo);
+    failover = cpsremus_do_failover;
+    sem_post(&sem_cpsremus_fo);
+    return failover;
+}*/
+
 static ssize_t rdexact(xc_interface *xch, struct restore_ctx *ctx,
                        int fd, void* buf, size_t size)
 {
     size_t offset = 0;
     ssize_t len;
-    struct timeval tv;
-    fd_set rfds;
+    /*struct timeval tv;
+    fd_set rfds;*/
 
     while ( offset < size )
     {
-        if ( ctx->completed ) {
-            /* expect a heartbeat every HEARBEAT_MS ms maximum */
+        /*if ( ctx->completed ) {
+             expect a heartbeat every HEARBEAT_MS ms maximum 
             tv.tv_sec = HEARTBEAT_MS / 1000;
             tv.tv_usec = (HEARTBEAT_MS % 1000) * 1000;
 
@@ -92,6 +103,12 @@ static ssize_t rdexact(xc_interface *xch, struct restore_ctx *ctx,
                 errno = ETIMEDOUT;
                 return -1;
             }
+        }*/
+
+        if ( cpsremus_do_failover ) {
+            ERROR("Received failover signal.\n");
+            errno = ETIMEDOUT;
+            return -1;
         }
 
         len = read(fd, buf + offset, size - offset);
@@ -1736,7 +1753,7 @@ int xc_domain_restore(xc_interface *xch, int io_fd, uint32_t dom,
          * nonblocking mode for the remainder.
          */
         if ( !ctx->last_checkpoint )
-            fcntl(io_fd, F_SETFL, orig_io_fd_flags | O_NONBLOCK);
+            fcntl(io_fd, F_SETFL, orig_io_fd_flags); /* | O_NONBLOCK);*/
 
         /*
          * If sender had sent enable compression flag, switch to compressed
