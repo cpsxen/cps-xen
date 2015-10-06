@@ -525,8 +525,9 @@ struct cmd_spec cmd_table[] = {
       "-b                      Replicate memory checkpoints to /dev/null (blackhole).\n"
       "                        Works only in unsafe mode.\n"
       "-n                      Disable network output buffering. Works only in unsafe mode.\n"
-      "-d                      Disable disk replication. Works only in unsafe mode."
-      "-E                      Use event-driven instead of periodic checkpointing. Needs DomU support."
+      "-d                      Disable disk replication. Works only in unsafe mode.\n"
+      "-E                      Use event-driven instead of periodic checkpointing. Needs DomU support.\n"
+      "-t                      Timeout for heartbeat after which failover shall be triggered.\n"                 
       "-p                      When -E is activated poll for events instead of blocking.\n" 
     },
 #endif

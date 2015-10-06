@@ -125,7 +125,7 @@ LIBXLU_OBJS = libxlu_cfg_y.o libxlu_cfg_l.o libxlu_cfg.o \
 	libxlu_disk_l.o libxlu_disk.o libxlu_vif.o libxlu_pci.o
 $(LIBXLU_OBJS): CFLAGS += $(CFLAGS_libxenctrl) # For xentoollog.h
 
-CLIENTS = xl testidl libxl-save-helper xen-init-dom0
+CLIENTS = xl testidl libxl-save-helper xen-init-dom0 cpsremus_heartbeat_rcv cpsremus_heartbeat_send
 
 CFLAGS_XL += $(CFLAGS_libxenlight)
 CFLAGS_XL += -Wshadow
@@ -258,6 +258,9 @@ install: all
 	$(INSTALL_PROG) xl $(DESTDIR)$(SBINDIR)
 	$(INSTALL_PROG) xen-init-dom0 $(DESTDIR)$(LIBEXEC_BIN)
 	$(INSTALL_PROG) libxl-save-helper $(DESTDIR)$(LIBEXEC_BIN)
+	$(INSTALL_PROG) cpsremus_heartbeat_rcv $(DESTDIR)$(SBINDIR)
+	$(INSTALL_PROG) cpsremus_heartbeat_send $(DESTDIR)$(SBINDIR)
+	$(INSTALL_PROG) heartbeat_launcher $(DESTDIR)$(SBINDIR)
 	$(INSTALL_SHLIB) libxenlight.so.$(MAJOR).$(MINOR) $(DESTDIR)$(LIBDIR)
 	$(SYMLINK_SHLIB) libxenlight.so.$(MAJOR).$(MINOR) $(DESTDIR)$(LIBDIR)/libxenlight.so.$(MAJOR)
 	$(SYMLINK_SHLIB) libxenlight.so.$(MAJOR) $(DESTDIR)$(LIBDIR)/libxenlight.so

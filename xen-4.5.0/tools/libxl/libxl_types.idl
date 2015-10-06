@@ -657,6 +657,7 @@ libxl_sched_fp_params = Struct("sched_fp_params", [
 
 libxl_domain_remus_info = Struct("domain_remus_info",[
     ("interval",     integer),
+    ("timeout",      integer),
     ("allow_unsafe", libxl_defbool),
     ("blackhole",    libxl_defbool),
     ("compression",  libxl_defbool),
