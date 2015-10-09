@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#define PERCENTAGE 50 // percentage of timeout to be used as period for heartbeat signal
+#define PERCENTAGE 33 // percentage of timeout to be used as period for heartbeat signal
 #define UNITS 1000 // use units of 1000 microseconds for period
 
 int main(int argc, char *argv[]) {
@@ -21,7 +21,7 @@ int main(int argc, char *argv[]) {
     while(1) {
         fprintf(stdout, "h\n");
         fflush(stdout);
-        usleep(timeout*UNITS);
+        usleep(period*UNITS);
     }
     return -1;
 }
