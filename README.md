@@ -14,13 +14,13 @@ Make sure to have "sched=fp" in the grub command line.
 
 ### Features of CPS-Xen 1.1 
 
-####The current CPS-Xen version allows to switch on the fly between the following three preemptive scheduling policies:
+The current CPS-Xen version allows to switch on the fly between the following three preemptive scheduling policies:
 
 * Fixed priority scheduling (FP)
 * Rate-monotonic scheduling (RM)
 * Deadline-monotonic scheduling (DM)
-* 
-
+ 
+CPS-Xen 1.1 introduces an explicit event-based mechanism for checkpointing of paravirtualized virtual machines. This functionality is implemented as an extention to Remus.
 
 ### How to use?
 
