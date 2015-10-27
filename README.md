@@ -68,4 +68,5 @@ http://ess.cs.tu-dortmund.de/EN/Software/CPSXen/index.html
 [3] http://wiki.xen.org/wiki/Remus 
 
 [4] B. Jablkowski and O. Spinczyk. *CPS-Xen: A virtual execution environment for cyber-physical applications.* In 28th International Conference on Architecture of Computing Systems (ARCS '15), Porto, Portugal, Mar. 2015. Springer-Verlag
+
 [5] B. Jablkowski and O. Spinczyk. CPS-Remus: Eine Hochverfügbarkeitslösung für virtualisierte cyber-physische Anwendungen. In Betriebssysteme und Echtzeit - Echtzeit 2015. Springer-Verlag, Nov. 2015.
