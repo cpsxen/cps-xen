@@ -46,7 +46,7 @@ Since Linux Kernel version 3.12 a new netback model has been introduced which ut
 
 ### Citing CPS-Xen
 
-Please cite the CPS-Xen paper [4] in any research that uses CPS-Xen. 
+Please cite our CPS-Xen papers [4,5] in any research that uses CPS-Xen. 
 
 ### Conditions of Use
 
