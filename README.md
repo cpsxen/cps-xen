@@ -20,7 +20,7 @@ The current CPS-Xen version allows to switch on the fly between the following th
 * Rate-monotonic scheduling (RM)
 * Deadline-monotonic scheduling (DM)
  
-CPS-Xen 1.1 introduces an explicit event-based mechanism for checkpointing of paravirtualized virtual machines. This functionality is implemented as an extention to Remus.
+CPS-Xen 1.1 introduces an explicit event-based mechanism for checkpointing of paravirtualized virtual machines. This functionality is implemented as an extention to Remus(a high availability extension )[2,3].
 
 ### How to use?
 
