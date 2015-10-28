@@ -8,7 +8,7 @@ CPS-Xen 1.1 is based upon Xen 4.5.0 version.
 
 ### How to install?
 
-The Xen version inside the xen-4.5.0 directory already contains the current CPS-Xen patches. To install CPS-Xen follow the standard build and installation instructions described in xen-4.5.0/README. For additional information please refer to http://wiki.xenproject.org/wiki/Compiling_Xen_From_Source. All of the applied patches are included in the main directory and divided into core patches - reflecting the changes made to the xen hypervisor code - and tools patches - related to the adjustments in the toolstacks.
+The CPS-Xen version inside the xen-4.5.0 directory already contains the current CPS-Xen patches. To install CPS-Xen follow the standard build and installation instructions described in xen-4.5.0/README. For additional information please refer to http://wiki.xenproject.org/wiki/Compiling_Xen_From_Source. All of the applied patches are included in the main directory and divided into core patches - reflecting the changes made to the xen hypervisor code - and tools patches - related to the adjustments in the toolstacks.
 
 Make sure to have "sched=fp" in the grub command line.
 
@@ -20,9 +20,11 @@ The current CPS-Xen version allows to switch on the fly between the following th
 * Rate-monotonic scheduling (RM)
 * Deadline-monotonic scheduling (DM)
  
-CPS-Xen 1.1 introduces an explicit event-based mechanism for checkpointing of paravirtualized virtual machines. This functionality is implemented as an extention to Remus(a high availability extension )[2,3].
+CPS-Xen 1.1 also introduces an explicit event-based mechanism for checkpointing of paravirtualized virtual machines (PVM). This allows a PVM itself to determine the moment in time for a checkpoint process rather than being dependent on a periodical event. This functionality is implemented as an extention to Remus(a high availability extension for Xen)[2,3]. 
 
 ### How to use?
+
+####Scheduler:
 
 You can set the scheduler parameters on the fly as follows (xl or xm toolstack):
 
