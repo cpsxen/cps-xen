@@ -54,9 +54,10 @@ The xl remus functionality has been extended with the following parameters/optio
 
 >Options:
 
->- -d DOMAIN,   --domain=DOMAIN         Domain to modify
-- -p PRIORITY, --priority=PRIORITY     Priority of the specified domain (int)
-- -P PERIOD,   --period=PERIOD         Period (int)
+>-E                      Use event-driven instead of periodic checkpointing. Needs DomU support.
+ -t                      Timeout for heartbeat after which failover shall be triggered.
+ -p                      When -E is activated poll for events instead of blocking.
+
 
 ### Citing CPS-Xen
 
