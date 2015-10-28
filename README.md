@@ -50,6 +50,14 @@ Since Linux Kernel version 3.12 a new netback model has been introduced which ut
 
 In order to trigger a checkpoint process the PVM that is supossed to be fail-safe has to write an arbirtraty value into the Xenbus path "/local/domain/[DomID]/data/ha". After starting Remus in Dom0 CPS-Xen registers - for the given domain - a watch on this path. Whenever a value changes a callback function providing the checkpoint functionality is being executed. 
 
+The xl remus functionality has been extended with the following parameters/options:
+
+>Options:
+
+>- -d DOMAIN,   --domain=DOMAIN         Domain to modify
+- -p PRIORITY, --priority=PRIORITY     Priority of the specified domain (int)
+- -P PERIOD,   --period=PERIOD         Period (int)
+
 ### Citing CPS-Xen
 
 Please cite our CPS-Xen papers [4,5] in any research that uses CPS-Xen. 
