@@ -46,6 +46,10 @@ The priorities will be (re)calculated automatically:
 
 Since Linux Kernel version 3.12 a new netback model has been introduced which utilizes multiple kernel threads for packet processing. Each VM has been given a dedicated process named *vif[Domain ID]*. Through the POSIX interface (*chrt* command) in *Dom0* the scheduling priority of this process can be synchronized with the VMM-scheduler priority of the corresponding VM. This step will provide lower latencies and jitter as well as tighter response time bounds for the given VM. 
 
+####High Availability with Explicit Checkpointing
+
+In order to trigger a checkpoint process the PVM that is supossed to be fail-safe has to write an arbirtraty value into the Xenbus path "/local/domain/[DomID]/data/ha". After starting Remus in Dom0 CPS-Xen registers a watch on this path. Whenever this values changes a callback function providing the checkpoint functionality is being executed. 
+
 ### Citing CPS-Xen
 
 Please cite our CPS-Xen papers [4,5] in any research that uses CPS-Xen. 
