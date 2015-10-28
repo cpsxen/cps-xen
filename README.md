@@ -48,15 +48,17 @@ Since Linux Kernel version 3.12 a new netback model has been introduced which ut
 
 ####High Availability with Explicit Checkpointing
 
-In order to trigger a checkpoint process the PVM that is supossed to be fail-safe has to write an arbirtraty value into the Xenbus path "/local/domain/[DomID]/data/ha". After starting Remus in Dom0 CPS-Xen registers - for the given domain - a watch on this path. Whenever a value changes a callback function providing the checkpoint functionality is being executed. 
+In order to trigger a checkpoint process the PVM that is supossed to be fail-safe has to write an arbirtraty value into the Xenbus path "/local/domain/[DomID]/data/ha". After starting Remus in Dom0 CPS-Xen registers - for the given domain - a watch on this path. Whenever a value changes on this path a callback function providing the checkpoint functionality is being executed. Further, as the periodic event is dropped in this explicit event version of checkpointing there also has to be an additional way to determine the moment for a fail-safe. This is done through a new timeout which the user is suppose to set starting Remus.
 
-The xl remus functionality has been extended with the following parameters/options:
+The xl remus functionality has been extended with the following options:
+
+> Usage: xl [-vf] remus [options] \<Domain\> [\<host\>]
 
 >Options:
 
->-E                      Use event-driven instead of periodic checkpointing. Needs DomU support.
- -t                      Timeout for heartbeat after which failover shall be triggered.
- -p                      When -E is activated poll for events instead of blocking.
+>- -E                      Use event-driven instead of periodic checkpointing. Needs DomU support.
+- -t                      Timeout for heartbeat after which failover shall be triggered.
+- -p                      When -E is activated poll for events instead of blocking.
 
 
 ### Citing CPS-Xen
