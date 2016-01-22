@@ -1,0 +1,10 @@
+--- xen/common/Makefile	2015-01-12 17:53:24.000000000 +0100
++++ xen/common/Makefile	2015-06-02 15:36:03.609452000 +0200
+@@ -22,6 +22,7 @@
+ obj-y += preempt.o
+ obj-y += random.o
+ obj-y += rangeset.o
++obj-y += sched_fp.o
+ obj-y += sched_credit.o
+ obj-y += sched_credit2.o
+ obj-y += sched_sedf.o

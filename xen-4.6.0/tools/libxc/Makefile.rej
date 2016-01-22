@@ -1,0 +1,10 @@
+--- tools/libxc/Makefile	2015-01-12 17:53:24.000000000 +0100
++++ tools/libxc/Makefile	2015-06-02 15:51:38.185452000 +0200
+@@ -16,6 +16,7 @@
+ CTRL_SRCS-y       += xc_flask.c
+ CTRL_SRCS-y       += xc_physdev.c
+ CTRL_SRCS-y       += xc_private.c
++CTRL_SRCS-y       += xc_fp.c
+ CTRL_SRCS-y       += xc_sedf.c
+ CTRL_SRCS-y       += xc_csched.c
+ CTRL_SRCS-y       += xc_csched2.c
