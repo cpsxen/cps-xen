@@ -1,0 +1,19 @@
+#include <stdio.h>
+#include <unistd.h>
+//#include <mini-os/kernel.h>
+//#include <mini-os/events.h>
+#include <sys/types.h>
+
+int main(void)
+{
+//int d = 0;
+    while(1)
+    {
+	printf("Hello, world! \n");
+	sleep(10);
+//	test_kxenbus();
+	//if(!d)test_kxenbus();
+	//d++;
+    }
+return 0;
+}
