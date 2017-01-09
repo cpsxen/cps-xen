@@ -1,10 +1,10 @@
-# CPS-Xen 1.1
+# CPS-Xen 1.2
 
 ### What is CPS-Xen?
 
 The CPS-Xen project aims at providing a deterministic, dependable and fault tolerant platform for executing safety-critical applications for monitoring, protection or control of cyber-physical systems (CPS). CPS-Xen is based upon the Xen-Hypervisor [1] - a popular open-source Virtual Machine Monitor (VMM). CPS-Xen extends Xen by implementing established real-time scheduling algorithms and provides additional features for the execution and monitoring of the safety-critical applications.
 
-CPS-Xen 1.1 is based upon Xen 4.5.0 version. 
+CPS-Xen 1.2 is based upon Xen 4.7.0 version. 
 
 ### How to install?
 
@@ -12,7 +12,7 @@ The CPS-Xen version inside the xen-4.5.0 directory already contains the current 
 
 Make sure to have "sched=fp" in the grub command line.
 
-### Features of CPS-Xen 1.1 
+### Features of CPS-Xen 1.2 
 
 The current CPS-Xen version allows to switch on the fly between the following three preemptive scheduling policies:
 
@@ -87,3 +87,8 @@ http://ess.cs.tu-dortmund.de/EN/Software/CPSXen/index.html
 [4] B. Jablkowski and O. Spinczyk. *CPS-Xen: A virtual execution environment for cyber-physical applications.* In 28th International Conference on Architecture of Computing Systems (ARCS '15), Porto, Portugal, Mar. 2015. Springer-Verlag
 
 [5] B. Jablkowski and O. Spinczyk. CPS-Remus: Eine Hochverfügbarkeitslösung für virtualisierte cyber-physische Anwendungen. In Betriebssysteme und Echtzeit - Echtzeit 2015. Springer-Verlag, Nov. 2015.
+
+### Changlog
+from 1.1: - adpated CPS-Remus to new migrate V2
+          - more stable hearbeat mechanism
+          - fixed several bugs in the scheduler
