@@ -1,0 +1,50 @@
+## Path: System/Virtualization
+## Type: string
+## Default: "none"
+#
+# Log xenconsoled messages (cf xl dmesg)
+#XENCONSOLED_TRACE=[none|guest|hv|all]
+
+## Type: string
+## Default: xenstored
+#
+# Select xenstore implementation, this can be either
+# of these below. If using systemd it's preferred that you
+# just edit the xenstored.service unit file and change
+# the XENSTORED variable there.
+#
+# This can be either of:
+#  * /usr/local/sbin/oxenstored
+#  * /usr/local/sbin/xenstored
+#
+# Changing this requires a reboot to take effect.
+#XENSTORED=/usr/local/sbin/oxenstored
+
+## Type: string
+## Default: ""
+#
+# Additional commandline arguments to start xenstored,
+# like "--trace-file /var/log/xen/xenstored-trace.log"
+# See "/usr/local/sbin/xenstored --help" for possible options.
+XENSTORED_ARGS=
+
+## Type: string
+## Default: Not defined, tracing off
+#
+# Log xenstored messages
+#XENSTORED_TRACE=[yes|on|1]
+
+## Type: string
+## Default: "/var/lib/xenstored"
+#
+# Running xenstored on XENSTORED_ROOTDIR
+#XENSTORED_ROOTDIR=/var/lib/xenstored
+
+## Type: string
+## Default: Not defined, xenbackendd debug mode off
+#
+# Running xenbackendd in debug mode
+#XENBACKENDD_DEBUG=[yes|on|1]
+
+# qemu path
+#QEMU_XEN=/usr/local/lib/xen/bin/qemu-system-i386
