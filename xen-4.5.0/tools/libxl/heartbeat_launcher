@@ -1,3 +1,0 @@
-#!/bin/sh
-
-cpsremus_heartbeat_send $2 | ssh $1 "cpsremus_heartbeat_rcv $2 &> /var/log/cpsremus.log" 
