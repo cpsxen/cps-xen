@@ -33,7 +33,10 @@ int libxl__domain_suspend_init(libxl__egc *egc,
     libxl__xswait_init(&dsps->pvcontrol);
     libxl__ev_evtchn_init(&dsps->guest_evtchn);
     libxl__ev_xswatch_init(&dsps->guest_watch);
+    libxl__ev_xswatch_init(&dsps->cpsremus_watch);
     libxl__ev_time_init(&dsps->guest_timeout);
+
+    libxl__ev_xswatch_deregister(gc, &dsps->cpsremus_watch);
 
     if (type == LIBXL_DOMAIN_TYPE_INVALID) goto out;
     dsps->type = type;

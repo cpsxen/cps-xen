@@ -190,6 +190,7 @@ libxl_scheduler = Enumeration("scheduler", [
     (6, "credit2"),
     (7, "arinc653"),
     (8, "rtds"),
+    (9, "fp"),
     ])
 
 # Consistent with SHUTDOWN_* in sched.h (apart from UNKNOWN)
@@ -411,6 +412,8 @@ libxl_domain_sched_params = Struct("domain_sched_params",[
     ("cap",          integer, {'init_val': 'LIBXL_DOMAIN_SCHED_PARAM_CAP_DEFAULT'}),
     ("period",       integer, {'init_val': 'LIBXL_DOMAIN_SCHED_PARAM_PERIOD_DEFAULT'}),
     ("budget",       integer, {'init_val': 'LIBXL_DOMAIN_SCHED_PARAM_BUDGET_DEFAULT'}),
+    ("deadline",     integer, {'init_val': 'LIBXL_DOMAIN_SCHED_PARAM_DEADLINE_DEFAULT'}),
+    ("priority",     integer, {'init_val': 'LIBXL_DOMAIN_SCHED_PARAM_PRIORITY_DEFAULT'}),
 
     # The following three parameters ('slice', 'latency' and 'extratime') are deprecated,
     # and will have no effect if used, since the SEDF scheduler has been removed.
@@ -833,15 +836,23 @@ libxl_sched_credit_params = Struct("sched_credit_params", [
     ("ratelimit_us", integer),
     ], dispose_fn=None)
 
+libxl_sched_fp_params = Struct("sched_fp_params", [
+    ("strategy", uint8),
+    ("load", uint32),
+    ], dispose_fn=None) 
+
 libxl_domain_remus_info = Struct("domain_remus_info",[
     ("interval",     integer),
+    ("timeout",      integer),
     ("allow_unsafe", libxl_defbool),
     ("blackhole",    libxl_defbool),
     ("compression",  libxl_defbool),
     ("netbuf",       libxl_defbool),
     ("netbufscript", string),
     ("diskbuf",      libxl_defbool),
-    ("colo",         libxl_defbool)
+    ("colo",         libxl_defbool),
+    ("event_driven", libxl_defbool),
+    ("polling",      libxl_defbool),
     ])
 
 libxl_event_type = Enumeration("event_type", [

@@ -349,6 +349,7 @@ DEFINE_XEN_GUEST_HANDLE(xen_domctl_max_vcpus_t);
 #define XEN_SCHEDULER_CREDIT2  6
 #define XEN_SCHEDULER_ARINC653 7
 #define XEN_SCHEDULER_RTDS     8
+#define XEN_SCHEDULER_FP       9
 
 typedef struct xen_domctl_sched_credit {
     uint16_t weight;
@@ -364,11 +365,19 @@ typedef struct xen_domctl_sched_rtds {
     uint32_t budget;
 } xen_domctl_sched_rtds_t;
 
+typedef struct xen_domctl_sched_fp {
+    uint64_aligned_t slice;
+    uint64_aligned_t period;
+    uint64_aligned_t deadline;
+    int32_t priority;
+} xen_domctl_sched_fp_t;
+
 typedef struct xen_domctl_schedparam_vcpu {
     union {
         xen_domctl_sched_credit_t credit;
         xen_domctl_sched_credit2_t credit2;
         xen_domctl_sched_rtds_t rtds;
+        xen_domctl_sched_fp_t fp;
     } u;
     uint32_t vcpuid;
 } xen_domctl_schedparam_vcpu_t;
@@ -398,6 +407,7 @@ struct xen_domctl_scheduler_op {
         xen_domctl_sched_credit_t credit;
         xen_domctl_sched_credit2_t credit2;
         xen_domctl_sched_rtds_t rtds;
+        xen_domctl_sched_fp_t fp;
         struct {
             XEN_GUEST_HANDLE_64(xen_domctl_schedparam_vcpu_t) vcpus;
             /*

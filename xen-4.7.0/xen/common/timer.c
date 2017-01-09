@@ -26,7 +26,7 @@
 #include <asm/atomic.h>
 
 /* We program the time hardware this far behind the closest deadline. */
-static unsigned int timer_slop __read_mostly = 50000; /* 50 us */
+static unsigned int timer_slop __read_mostly = 10000; /* 10 us */
 integer_param("timer_slop", timer_slop);
 
 struct timers {

@@ -780,6 +780,9 @@ static void checkpoint_done(libxl__egc *egc,
 
     assert(stream->in_checkpoint);
 
+    if (cpsremus_do_failover)
+        ret = XGR_CHECKPOINT_FAILOVER; // if we are here a failover has been signaled by heartbeat receiver
+
     if (rc == 0)
         ret = XGR_CHECKPOINT_SUCCESS;
     else if (stream->phase == SRS_PHASE_BUFFERING)

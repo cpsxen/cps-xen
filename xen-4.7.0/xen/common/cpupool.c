@@ -20,13 +20,11 @@
 #include <xen/keyhandler.h>
 #include <xen/cpu.h>
 
-#define for_each_cpupool(ptr)    \
-    for ((ptr) = &cpupool_list; *(ptr) != NULL; (ptr) = &((*(ptr))->next))
-
 struct cpupool *cpupool0;                /* Initial cpupool with Dom0 */
 cpumask_t cpupool_free_cpus;             /* cpus not in any cpupool */
 
-static struct cpupool *cpupool_list;     /* linked list, sorted by poolid */
+//static struct cpupool *cpupool_list;     /* linked list, sorted by poolid */
+struct cpupool *cpupool_list; 
 
 static int cpupool_moving_cpu = -1;
 static struct cpupool *cpupool_cpu_moving = NULL;

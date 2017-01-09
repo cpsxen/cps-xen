@@ -861,6 +861,8 @@ int libxl_domain_remus_start(libxl_ctx *ctx, libxl_domain_remus_info *info,
                              !libxl_defbool_val(info->colo));
     libxl_defbool_setdefault(&info->netbuf, true);
     libxl_defbool_setdefault(&info->diskbuf, true);
+    libxl_defbool_setdefault(&info->event_driven, false);
+    libxl_defbool_setdefault(&info->polling, false);
 
     if (libxl_defbool_val(info->colo) &&
         libxl_defbool_val(info->compression)) {
@@ -879,7 +881,6 @@ int libxl_domain_remus_start(libxl_ctx *ctx, libxl_domain_remus_info *info,
         goto out;
     }
 
-
     GCNEW(dss);
     dss->ao = ao;
     dss->callback = remus_failover_cb;
@@ -890,6 +891,32 @@ int libxl_domain_remus_start(libxl_ctx *ctx, libxl_domain_remus_info *info,
     dss->live = 1;
     dss->debug = 0;
     dss->remus = info;
+    dss->statepath = NULL;
+
+    if (libxl_defbool_val(info->event_driven)) {
+        /* Check if DomU has support for event-driven checkpointing */
+        xs_transaction_t t = 0;
+        int trc = 0;
+        
+        trc = libxl__xs_transaction_start(gc, &t);
+        char *dompath = libxl__xs_get_dompath(gc, dss->domid);
+        char *statepath = libxl__sprintf(gc, "%s/data/ha", dompath);
+
+        if (trc) {
+            LOG(ERROR, "Remus: Failed to check DomU support");
+            goto out;
+        }
+
+        if (!libxl__xs_read(gc, t, statepath)) {
+            libxl__xs_transaction_abort(gc, &t);
+            LOG(ERROR, "CPS-Remus: Event-driven checkpointing not supported by domain. Aborting.");
+            goto out;
+        }
+        
+        libxl__xs_transaction_abort(gc, &t);
+        dss->statepath = statepath;
+    }
+
     if (libxl_defbool_val(info->colo))
         dss->checkpointed_stream = LIBXL_CHECKPOINTED_STREAM_COLO;
     else
@@ -3771,6 +3798,25 @@ const char *libxl__device_nic_devname(libxl__gc *gc,
     }
 }
 
+int libxl_device_nic_send_gratuitous_arp(libxl_ctx *ctx, libxl_device_nic *nic)
+{
+    GC_INIT(ctx);
+    char mac[18];
+    int rc;
+    char *cmd;
+
+    sprintf(mac, LIBXL_MAC_FMT, LIBXL_MAC_BYTES(nic->mac)); 
+    cmd = libxl__sprintf(gc, "send_arp %s %s %s ff:ff:ff:ff:ff:ff %s %s ff:ff:ff:ff:ff:ff request", nic->ip, mac, nic->ip, nic->bridge, mac);  
+    fprintf(stderr, "Updating arp for ip %s and mac %s on bridge %s\n", nic->ip, mac, nic->bridge);
+    rc = system(cmd);
+    if (rc)
+        fprintf(stderr, "Unable to send arp packet\n");
+
+    GC_FREE;
+    return rc;
+}
+
+
 /******************************************************************************/
 int libxl__device_console_add(libxl__gc *gc, uint32_t domid,
                               libxl__device_console *console,
@@ -6288,6 +6334,139 @@ static int sched_rtds_domain_set(libxl__gc *gc, uint32_t domid,
     return 0;
 }
 
+/* Get domain-parameters for the FP-Scheduler. */
+static int sched_fp_domain_get(libxl__gc *gc, uint32_t domid, libxl_domain_sched_params *scinfo)
+{
+    struct xen_domctl_sched_fp sdom;
+    int rc;
+    
+    rc = xc_sched_fp_domain_get(CTX->xch, domid, &sdom);
+    if (rc != 0) {
+        LIBXL__LOG_ERRNO(CTX, LIBXL__LOG_ERROR, "getting domain sched fp");
+        return ERROR_FAIL;
+    }
+    
+    libxl_domain_sched_params_init(scinfo);
+
+    scinfo->sched = LIBXL_SCHEDULER_FP;
+    scinfo->priority = sdom.priority;
+    scinfo->period = sdom.period / 1000;
+    scinfo->slice = sdom.slice / 1000;
+    scinfo->deadline = sdom.deadline / 1000;
+
+    return 0;
+}
+
+/* Set domain-parameters for the FP-Scheduler. */
+static int sched_fp_domain_set(libxl__gc *gc, uint32_t domid, const libxl_domain_sched_params *scinfo)
+{
+    struct xen_domctl_sched_fp sdom;
+    xc_domaininfo_t domaininfo;
+    int rc;
+
+    rc = xc_domain_getinfolist(CTX->xch, domid, 1, &domaininfo);
+    if (rc <  0) {
+        LIBXL__LOG_ERRNO(CTX, LIBXL__LOG_ERROR, "getting domain info list");
+        return ERROR_FAIL;
+    }
+    if (rc != 1 || domaininfo.domain != domid)
+        return ERROR_INVAL;
+
+    if (scinfo->period < 0) {
+        LIBXL__LOG_ERRNOVAL(CTX, LIBXL__LOG_ERROR, rc, 
+           "Period out of range. Valid values are positive integers.");
+        return ERROR_INVAL;
+    }
+
+    if (scinfo->deadline < 0) {
+        LIBXL__LOG_ERRNOVAL(CTX, LIBXL__LOG_ERROR, rc, 
+            "Deadline out of range. Valid values are positive integers.");
+        return ERROR_INVAL;
+   }
+    
+    if (scinfo->slice < 0) {
+        LIBXL__LOG_ERRNOVAL(CTX, LIBXL__LOG_ERROR, rc, 
+            "Slice out of range. Valid values are positive integers.");
+        return ERROR_INVAL;
+    }
+
+    if (scinfo->priority < 0 || scinfo->priority >= LIBXL_DOMAIN_SCHED_PARAM_PRIORITY_MAX) {
+        LIBXL__LOG_ERRNOVAL(CTX, LIBXL__LOG_ERROR, rc,
+            "Priority out of range. Valid values are between 0 and 999.");
+        return ERROR_INVAL;
+    }
+
+    sdom.priority = scinfo->priority;
+    sdom.slice = scinfo->slice;
+    sdom.period = scinfo->period;
+    sdom.deadline = scinfo->deadline;
+
+    rc = xc_sched_fp_domain_set(CTX->xch, domid, &sdom);
+    if ( rc < 0 ) {
+        LIBXL__LOG_ERRNO(CTX, LIBXL__LOG_ERROR, "setting domain sched credit");
+        return ERROR_FAIL;
+    }
+
+    return 0;
+}
+
+/* Get the currently used scheduling strategy and store it in scinfo. */
+int libxl_sched_fp_schedule_get(libxl_ctx *ctx, uint32_t poolid, libxl_sched_fp_params *scinfo)
+{
+    struct xen_sysctl_fp_schedule schedule;
+    int rc;
+
+    rc = xc_sched_fp_schedule_get(ctx->xch, poolid, &schedule);
+    if (rc != 0) {
+        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "setting schedule sched fp");
+        return ERROR_FAIL;
+    }
+    
+    scinfo->strategy = schedule.strategy;
+    
+    return 0;
+}
+
+/* Set the new strategy to be used by the FP-Scheduler. */
+int libxl_sched_fp_schedule_set(libxl_ctx *ctx, uint32_t poolid, libxl_sched_fp_params *scinfo)
+{
+    struct xen_sysctl_fp_schedule schedule;
+    int rc;
+    
+    if (scinfo->strategy > 2 || scinfo->strategy < 0) {
+        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "Unknown strategy. Valid values are 0 for rate-monotonic, 1 for deadline-monotonic or 2 for fixed priority.");
+        return ERROR_INVAL;
+    }
+    
+    schedule.strategy = scinfo->strategy;
+    rc = xc_sched_fp_schedule_set(ctx->xch, poolid, &schedule);
+
+    if (rc != 0) {
+        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "setting schedule sched fp");
+        return ERROR_FAIL;
+    }
+    
+    return 0;
+}
+
+
+/* Get the hypothetical worst-case load of cpu cpu. */
+int libxl_sched_fp_get_wcload_on_cpu(libxl_ctx *ctx, int cpu, libxl_sched_fp_params *scinfo)
+{
+    struct xen_sysctl_fp_schedule schedule;
+    int rc;
+
+    rc = xc_sched_fp_get_wcload_on_cpu(ctx->xch, cpu, &schedule);
+    if (rc != 0) {
+        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "getting worst-case load on cpu");
+        return ERROR_FAIL;
+    }
+
+    scinfo->load = schedule.load;
+
+    return 0;
+}
+
 int libxl_domain_sched_params_set(libxl_ctx *ctx, uint32_t domid,
                                   const libxl_domain_sched_params *scinfo)
 {
@@ -6314,6 +6493,9 @@ int libxl_domain_sched_params_set(libxl_ctx *ctx, uint32_t domid,
         break;
     case LIBXL_SCHEDULER_RTDS:
         ret=sched_rtds_domain_set(gc, domid, scinfo);
+        break;
+    case LIBXL_SCHEDULER_FP:
+        ret=sched_fp_domain_set(gc, domid, scinfo);
         break;
     default:
         LOG(ERROR, "Unknown scheduler");
@@ -6416,6 +6598,9 @@ int libxl_domain_sched_params_get(libxl_ctx *ctx, uint32_t domid,
         break;
     case LIBXL_SCHEDULER_RTDS:
         ret=sched_rtds_domain_get(gc, domid, scinfo);
+        break;
+    case LIBXL_SCHEDULER_FP:
+        ret=sched_fp_domain_get(gc, domid, scinfo);
         break;
     default:
         LOG(ERROR, "Unknown scheduler");

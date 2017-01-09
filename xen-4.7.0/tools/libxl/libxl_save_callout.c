@@ -12,6 +12,9 @@
  * GNU Lesser General Public License for more details.
  */
 
+#define _GNU_SOURCE
+#include <sys/stat.h>
+
 #include "libxl_osdeps.h"
 
 #include "libxl_internal.h"
@@ -231,6 +234,32 @@ static void run_helper(libxl__egc *egc, libxl__save_helper_state *shs,
                     -1,
                     args[0], (char**)args, 0);
     }
+    
+    pid_t ppid = getpid();
+
+    struct stat stinfo;
+
+    if (stat("/tmp/cpsremus_fifo", &stinfo)) {
+      if (errno == ENOENT) {
+        int ret = mkfifo("/tmp/cpsremus_fifo", 0666);
+        LOGE(WARN, "created fifo with return code %i", ret);
+      }
+    } else {
+      if (!S_ISFIFO(stinfo.st_mode))
+        LOGE(WARN, "cspremus_fifo is not a named pipe.");
+    }
+
+    int fifo_fd = open("/tmp/cpsremus_fifo", O_WRONLY|O_NONBLOCK);
+    char *pid_s; 
+    int pid_s_len = asprintf(&pid_s,"%i#%i",pid, ppid);
+
+    if (write(fifo_fd, (void*)pid_s, pid_s_len+1) != pid_s_len+1) {
+        LOGE(WARN, "unable to write pids to fifo file.");
+    }
+
+    close(fifo_fd);
+
+    LOGE(WARN,"PID of save_helper is %i\n", (int)pid);
 
     libxl__carefd_close(childs_pipes[0]);
     libxl__carefd_close(childs_pipes[1]);

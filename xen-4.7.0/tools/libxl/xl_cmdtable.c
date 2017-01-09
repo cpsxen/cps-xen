@@ -276,6 +276,18 @@ struct cmd_spec cmd_table[] = {
       "-p PERIOD, --period=PERIOD     Period (us)\n"
       "-b BUDGET, --budget=BUDGET     Budget (us)\n"
     },
+    { "sched-fp",
+      &main_sched_fp, 0, 1,
+      "Get/set fp scheduler parameters",
+      "[-d <Domain> [-p[=PRIORITY]|-P[=PERIOD]|-s[=SLICE]]|-D[=DEADLINE]] [-S[=STRATEGY]]",
+      "-d DOMAIN, --domain=DOMAIN           Domain to modify\n"
+      "-p PRIORITY, --priority=PRIORITY     Priority of the specified domain (int)\n"
+      "-P PERIOD, --period=PERIOD           Period (int)\n"
+      "-s SLICE, --slice=SLICE              Slice (int)\n"
+      "-S STRATEGY, --strategy=STRATEGY     Strategy to be used by the scheduler (int)\n"
+      "                                      STRATEGY can either be 0 (rate-monotonic), 1 (deadline-monotonic) or 2 (fixed priority).\n"
+      "-D DEADLINE, --deadline=DEADLINE     Deadline (int)\n"
+    },
     { "domid",
       &main_domid, 0, 0,
       "Convert a domain name to domain id",
@@ -505,6 +517,9 @@ struct cmd_spec cmd_table[] = {
       "-d                      Disable disk replication. Works only in unsafe mode.\n"
       "-c                      Enable COLO HA. It is conflict with -i and -b, and memory\n"
       "                        checkpoint must be disabled"
+      "-E                      Use event-driven instead of periodic checkpointing. Needs DomU support.\n"
+      "-t                      Timeout for heartbeat after which failover shall be triggered.\n"
+      "-p                      When -E is activated poll for events instead of blocking.\n"
     },
 #endif
     { "devd",

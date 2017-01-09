@@ -12,6 +12,7 @@
 
 /* A global pointer to the initial cpupool (POOL0). */
 extern struct cpupool *cpupool0;
+extern struct cpupool *cpupool_list;
 
 /* cpus currently in no cpupool */
 extern cpumask_t cpupool_free_cpus;

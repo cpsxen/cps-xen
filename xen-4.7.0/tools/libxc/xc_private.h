@@ -150,6 +150,12 @@ void xc_report_progress_step(xc_interface *xch,
         ## _a , errno, xc_strerror(xch, errno)); \
         errno = PERROR_errno; \
         } while (0)
+#define CPSREMUS_DBG_PRINTF(_f, _a...) do { int CPSREMUS_DBG_PRINTF_errno = errno; \
+        char hostname[128]; \
+        gethostname(hostname, sizeof(hostname)); \
+        xc_report(xch, xch->error_handler, XTL_INFO,0, "%s:%s", hostname, _f, ##_a); \
+        errno = CPSREMUS_DBG_PRINTF_errno; \
+        } while (0)
 
 /*
  * HYPERCALL ARGUMENT BUFFERS

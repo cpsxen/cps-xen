@@ -4752,6 +4752,8 @@ static void migrate_receive(int debug, int daemonize, int monitor,
     char rc_buf;
     char *migration_domname;
     struct domain_create dom_info;
+    int nb, i;
+    libxl_device_nic *nics;
     const char *ha = checkpointed == LIBXL_CHECKPOINTED_STREAM_COLO ?
                      "COLO" : "Remus";
 
@@ -4822,6 +4824,17 @@ static void migrate_receive(int debug, int daemonize, int monitor,
             fprintf(stderr, "migration target (%s): "
                     "Failed to unpause domain %s (id: %u):%d\n",
                     ha, common_domname, domid, rc);
+        /*
+         * For a fast network failover we need to send a gratuitous
+         * arp request for all nics used by the restored domain.
+         */
+        nics = libxl_device_nic_list(ctx, domid, &nb);
+        if (nics && nb) {
+            for (i = 0; i < nb; ++i) {
+                libxl_device_nic_send_gratuitous_arp(ctx, &nics[i]);
+            }
+        }
+
 
         exit(rc ? EXIT_FAILURE : EXIT_SUCCESS);
     default:
@@ -6456,6 +6469,85 @@ static int sched_rtds_pool_output(uint32_t poolid)
     return 0;
 }
 
+static int sched_fp_params_set(uint32_t poolid, libxl_sched_fp_params *scinfo)
+{
+    int rc;
+
+    rc = libxl_sched_fp_schedule_set(ctx, poolid, scinfo);
+    if (rc) 
+        fprintf(stderr, "libxl_sched_fp_params_set failed.\n");
+
+    return rc;
+}
+ 
+static int sched_fp_params_get(uint32_t poolid, libxl_sched_fp_params *scinfo)
+{
+    int rc;
+
+    rc = libxl_sched_fp_schedule_get(ctx, poolid, scinfo);
+    if (rc)
+        fprintf(stderr, "libxl_sched_fp_params_get failed.\n");
+    
+    return rc;
+}
+
+static int sched_fp_domain_output(int domid)
+{
+    char *domname;
+    libxl_domain_sched_params scinfo;
+    int rc;
+
+    if (domid < 0) {
+        printf("%-33s %4s %-4s %-4s %-4s %-4s\n", "Name", "ID", "Slice(us)", "Period(us)", "Deadline(us)", "Priority");
+        return 0;
+    }
+    libxl_domain_sched_params_init(&scinfo);
+    rc = sched_domain_get(LIBXL_SCHEDULER_FP, domid, &scinfo);
+    if (rc)
+        return rc;
+    domname = libxl_domid_to_name(ctx, domid);
+    printf("%-32s %5d %9u %10u %10u %8i\n",
+        domname,
+        domid,
+        (unsigned int)scinfo.slice,
+        (unsigned int)scinfo.period,
+        (unsigned int)scinfo.deadline,
+        (int)scinfo.priority);
+    free(domname);
+    libxl_domain_sched_params_dispose(&scinfo);
+    return 0;
+}
+    
+static int sched_fp_pool_output(uint32_t poolid)
+{
+    libxl_sched_fp_params scparam;
+    char *poolname;
+    char *strategy_name;
+    int rc;
+
+    poolname = libxl_cpupoolid_to_name(ctx, poolid);
+    rc = sched_fp_params_get(poolid, &scparam);
+    if (rc) {
+        printf("Cpupool: %s: [sched_params unavailable]\n", poolname);
+    } else {
+        switch (scparam.strategy) {
+            case LIBXL_SCHED_FP_STRAT_RM:
+                strategy_name = "rate-monotonic";
+                break;
+            case LIBXL_SCHED_FP_STRAT_DM:
+                strategy_name = "deadline-monotonic";
+                break; 
+            case LIBXL_SCHED_FP_STRAT_FP:
+                strategy_name = "fixed-priority";
+                break;
+        }
+        printf("Cpupool: %s: strategy=%s\n",poolname, strategy_name);
+    }
+    
+    free(poolname);
+    return 0;
+}
+    
 static int sched_default_pool_output(uint32_t poolid)
 {
     char *poolname;
@@ -6968,6 +7060,153 @@ out:
     free(periods);
     free(budgets);
     return r;
+}
+
+/* Print a warning when hypothetical worst-case-load of a cpu may be higher
+ * than 1.0 (100%) and deadlines may be missed using the FP-Scheduler. */
+/*static void print_cpu_warnings(void)
+{
+    libxl_topologyinfo info;
+    libxl_sched_fp scinfo;
+
+    if (libxl_get_topologyinfo(&ctx, &info)) {
+        fprintf(stderr, "libxl_get_topologyinfo failed.\n");
+        return;
+    }
+
+    for (int i = 0; i < info.coremap.entries; i++) {
+        if (info.coremap.array[i] != LIBXL_CPUARRAY_INVALID_ENTRY) {
+            if ( !(libxl_sched_fp_get_wcload_on_cpu(&ctx, info.coremap.array[i], &scinfo))) {
+                if ( scinfo.load > 100 ) 
+                    printf("Warning on CPU %d: Load is higher than 1.0. Deadlines may be missed. \n Please consider rescheduling some domains manually.\n",i);
+            }
+        }
+    }
+}*/
+    
+
+int main_sched_fp(int argc, char **argv)
+{
+    const char *dom = NULL;
+    const char *cpupool = NULL;
+    int period = 0, slice = 0, deadline = 0, priority = 0, strategy = 0;
+    int opt_S = 0;
+    int opt_s = 0, opt_P = 0, opt_p = 0, opt_D = 0;
+    int opt, rc;
+    static struct option opts[] = {
+        {"domain", 1, 0, 'd'},
+        {"period", 1, 0, 'P'},
+        {"slice", 1, 0, 's'},
+        {"deadline", 1, 0, 'd'},
+        {"priority", 1, 0, 'p'},
+        {"strategy", 1, 0, 'S'},
+        {"cpupool", 1, 0, 'c'},
+        COMMON_LONG_OPTS,
+        {0,0,0,0}
+    };
+
+    SWITCH_FOREACH_OPT(opt, "d:P:s:D:p:S:c:h", opts, "sched-fp", 0) {
+    case 'd':
+        dom = optarg;
+        break;
+    case 'P':
+        period = strtol(optarg, NULL, 10);
+        opt_P = 1;
+        break;
+    case 's':
+        slice = strtol(optarg, NULL, 10);
+        opt_s = 1;
+        break;
+    case 'D':
+        deadline = strtol(optarg, NULL, 10);
+        opt_D = 1;
+        break;
+    case 'p':
+        priority = strtol(optarg, NULL, 10);
+        opt_p = 1;
+        break;
+    case 'S':
+        strategy = strtol(optarg, NULL, 10);
+        opt_S = 1;
+        break;
+    case 'c':
+        cpupool = optarg;
+        break;
+    }
+
+    if ((cpupool || opt_S) && (dom || opt_P || opt_s || opt_D || opt_p)) {
+        fprintf(stderr, "Cpupool or strategy may not be specified with domain options.\n");
+        return 1;
+    }
+
+    if (opt_S) {
+        libxl_sched_fp_params scparam;
+        uint32_t poolid = 0;
+
+        if (cpupool) {
+            if (libxl_cpupool_qualifier_to_cpupoolid(ctx, cpupool, &poolid, NULL) ||
+                !libxl_cpupoolid_is_valid(ctx, poolid)) {
+                fprintf(stderr, "unknown cpupool \'%s\'\n", cpupool);
+                return -ERROR_FAIL;
+            }
+        }
+
+        rc = sched_fp_params_get(poolid, &scparam);
+        if (rc)
+            return -rc;
+
+        scparam.strategy = strategy;
+
+        rc = sched_fp_params_set(poolid, &scparam);
+        if (rc)
+            return -rc;
+    } else if (!dom) {
+        return -sched_domain_output(LIBXL_SCHEDULER_FP, 
+                                    sched_fp_domain_output,
+                                    sched_fp_pool_output,
+                                    cpupool);
+    } else {
+        uint32_t domid = find_domain(dom);
+
+        if (!opt_P && !opt_p && !opt_s && !opt_D) {
+            sched_fp_domain_output(-1);
+            return -sched_fp_domain_output(domid);
+        } else {
+            libxl_domain_sched_params scinfo;
+            libxl_domain_sched_params_init(&scinfo);
+
+            scinfo.sched = LIBXL_SCHEDULER_FP;
+            rc = sched_domain_get(LIBXL_SCHEDULER_FP, domid, &scinfo);
+
+            if (rc) {
+                return -rc;
+            }
+
+            if (opt_P) 
+              scinfo.period = period;
+            if (opt_s)
+              scinfo.slice = slice;
+            if (opt_D)
+              scinfo.deadline = deadline;
+            if (opt_p) {
+                libxl_sched_fp_params scparam;
+                rc = sched_fp_params_get(0, &scparam);
+
+                if (scparam.strategy != LIBXL_SCHED_FP_STRAT_FP) {
+                    fprintf(stderr, "Specifying domain priority is only allowed with fixed-priority scheduling.\n");
+                    return 1; 
+                } else {
+                    scinfo.priority = priority;
+                }
+            }
+            rc = sched_domain_set(domid, &scinfo);
+            libxl_domain_sched_params_dispose(&scinfo);
+            if (rc)
+                return -rc;
+        }
+    }
+
+    return 0;
 }
 
 int main_domid(int argc, char **argv)
@@ -8690,14 +8929,20 @@ int main_remus(int argc, char **argv)
     libxl_domain_remus_info r_info;
     int send_fd = -1, recv_fd = -1;
     pid_t child = -1;
+    pid_t hb_child = -1;
+    pid_t hb_child_pgid;
     uint8_t *config_data;
     int config_len;
+    char *runhb;
 
     memset(&r_info, 0, sizeof(libxl_domain_remus_info));
 
-    SWITCH_FOREACH_OPT(opt, "Fbundi:s:N:ec", NULL, "remus", 2) {
+    SWITCH_FOREACH_OPT(opt, "Fbundi:s:N:ecEpt:", NULL, "remus", 2) {
     case 'i':
         r_info.interval = atoi(optarg);
+        break;
+    case 't':
+        r_info.timeout = atoi(optarg);
         break;
     case 'F':
         libxl_defbool_set(&r_info.allow_unsafe, true);
@@ -8725,6 +8970,10 @@ int main_remus(int argc, char **argv)
         break;
     case 'c':
         libxl_defbool_set(&r_info.colo, true);
+        break;
+    case 'E':
+        libxl_defbool_set(&r_info.event_driven, true);
+        break;
     }
 
     domid = find_domain(argv[optind]);
@@ -8774,6 +9023,7 @@ int main_remus(int argc, char **argv)
                           ssh_command, host,
                           "-r",
                           daemonize ? "" : " -e");
+                xasprintf(&runhb, "exec heartbeat_launcher %s %i", host, r_info.timeout);
             } else {
                 xasprintf(&rune, "exec %s %s xl migrate-receive %s %s %s %s",
                           ssh_command, host,
@@ -8785,6 +9035,16 @@ int main_remus(int argc, char **argv)
         }
 
         save_domain_core_begin(domid, NULL, &config_data, &config_len);
+
+        hb_child = fork();
+        
+        if (!hb_child) {
+            if (system(runhb) != 0) {
+                fprintf(stderr, "Could not initiate heartbeat. Aborting");
+                exit(1);
+            }
+            exit(0);
+        }
 
         if (!config_len) {
             fprintf(stderr, "No config file stored for running domain and "
@@ -8824,6 +9084,17 @@ int main_remus(int argc, char **argv)
         fprintf(stderr, "%s: Backup failed? resuming domain at primary.\n",
                 libxl_defbool_val(r_info.colo) ? "COLO" : "Remus");
         libxl_domain_resume(ctx, domid, 1, 0);
+    }
+
+    hb_child_pgid = getpgid(hb_child);
+    if (hb_child == -1) {
+        fprintf(stderr, "Something ist wrong here. Cannot kill child processes\n");
+        close(send_fd);
+        return EXIT_FAILURE;
+    }
+    if (kill(-hb_child_pgid, SIGTERM)) {
+        fprintf(stderr, "Unable to terminate heartbeat child processes. Killing them.\n");
+        kill(-hb_child_pgid, SIGKILL);
     }
 
     close(send_fd);

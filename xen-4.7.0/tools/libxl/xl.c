@@ -48,7 +48,7 @@ char *default_remus_netbufscript = NULL;
 char *default_colo_proxy_script = NULL;
 enum output_format default_output_format = OUTPUT_FORMAT_JSON;
 int claim_mode = 1;
-bool progress_use_cr = 0;
+bool progress_use_cr = 1;
 
 xentoollog_level minmsglevel = minmsglevel_default;
 

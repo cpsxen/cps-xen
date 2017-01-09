@@ -1232,6 +1232,7 @@ err:
         errno = e;
     }
 
+    LIBXL__CPSREMUS_DBG_PRINT("libxl_dom.c:remus_devices_postsuspend_cb");
     if (rc)
         LOGE(ERROR, "cannot write/rename %s for %s", newfilename, filename);
 out:

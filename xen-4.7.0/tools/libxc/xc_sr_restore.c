@@ -13,6 +13,7 @@ static int read_headers(struct xc_sr_context *ctx)
     struct xc_sr_ihdr ihdr;
     struct xc_sr_dhdr dhdr;
 
+    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:read_headers");
     if ( read_exact(ctx->fd, &ihdr, sizeof(ihdr)) )
     {
         PERROR("Failed to read Image Header from stream");
@@ -505,6 +506,7 @@ static int handle_checkpoint(struct xc_sr_context *ctx)
     xc_interface *xch = ctx->xch;
     int rc = 0, ret;
     unsigned i;
+    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:handle_checkpoint");
 
     if ( !ctx->restore.checkpointed )
     {
@@ -605,6 +607,7 @@ static int buffer_record(struct xc_sr_context *ctx, struct xc_sr_record *rec)
     unsigned new_alloc_num;
     struct xc_sr_record *p;
 
+    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:buffer_record");
     if ( ctx->restore.buffered_rec_num >= ctx->restore.allocated_rec_num )
     {
         new_alloc_num = ctx->restore.allocated_rec_num + DEFAULT_BUF_RECORDS;
@@ -630,6 +633,7 @@ static int process_record(struct xc_sr_context *ctx, struct xc_sr_record *rec)
 {
     xc_interface *xch = ctx->xch;
     int rc = 0;
+    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:process_record");
 
     switch ( rec->type )
     {
@@ -737,6 +741,7 @@ static int restore(struct xc_sr_context *ctx)
     int rc, saved_rc = 0, saved_errno = 0;
 
     IPRINTF("Restoring domain");
+    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:restore");
 
     rc = setup(ctx);
     if ( rc )
@@ -799,6 +804,8 @@ static int restore(struct xc_sr_context *ctx)
      * With Remus, if we reach here, there must be some error on primary,
      * failover from the last checkpoint state.
      */
+    
+    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:restore:remus_failover");
     rc = ctx->restore.ops.stream_complete(ctx);
     if ( rc )
         goto err;
@@ -847,6 +854,7 @@ int xc_domain_restore(xc_interface *xch, int io_fd, uint32_t dom,
     ctx.restore.callbacks = callbacks;
     ctx.restore.send_back_fd = send_back_fd;
 
+    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:xc_domain_restore");
     /* Sanity checks for callbacks. */
     if ( stream_type )
         assert(callbacks->checkpoint);

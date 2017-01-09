@@ -1699,6 +1699,7 @@ libxl_device_nic *libxl_device_nic_list(libxl_ctx *ctx, uint32_t domid, int *num
 int libxl_device_nic_getinfo(libxl_ctx *ctx, uint32_t domid,
                               libxl_device_nic *nic, libxl_nicinfo *nicinfo);
 
+int libxl_device_nic_send_gratuitous_arp(libxl_ctx *ctx, libxl_device_nic *nic);
 /*
  * Virtual Channels
  * Channels manifest as consoles with names, see docs/misc/channels.txt
@@ -1901,16 +1902,29 @@ int libxl_sched_credit_params_get(libxl_ctx *ctx, uint32_t poolid,
                                   libxl_sched_credit_params *scinfo);
 int libxl_sched_credit_params_set(libxl_ctx *ctx, uint32_t poolid,
                                   libxl_sched_credit_params *scinfo);
+int libxl_sched_fp_schedule_get(libxl_ctx *ctx, uint32_t poolid, 
+                                  libxl_sched_fp_params *scinfo);
+int libxl_sched_fp_schedule_set(libxl_ctx *ctx, uint32_t poolid,
+                                  libxl_sched_fp_params *scinfo);
+int libxl_sched_fp_get_wcload_on_cpu(libxl_ctx *ctx, int cpu, libxl_sched_fp_params *scinfo);
 
 /* Scheduler Per-domain parameters */
 
 #define LIBXL_DOMAIN_SCHED_PARAM_WEIGHT_DEFAULT    -1
 #define LIBXL_DOMAIN_SCHED_PARAM_CAP_DEFAULT       -1
-#define LIBXL_DOMAIN_SCHED_PARAM_PERIOD_DEFAULT    -1
-#define LIBXL_DOMAIN_SCHED_PARAM_SLICE_DEFAULT     -1
+#define LIBXL_DOMAIN_SCHED_PARAM_PERIOD_DEFAULT    100
+#define LIBXL_DOMAIN_SCHED_PARAM_SLICE_DEFAULT     100
 #define LIBXL_DOMAIN_SCHED_PARAM_LATENCY_DEFAULT   -1
 #define LIBXL_DOMAIN_SCHED_PARAM_EXTRATIME_DEFAULT -1
 #define LIBXL_DOMAIN_SCHED_PARAM_BUDGET_DEFAULT    -1
+#define LIBXL_DOMAIN_SCHED_PARAM_DEADLINE_DEFAULT  100
+#define LIBXL_DOMAIN_SCHED_PARAM_PRIORITY_DEFAULT  999
+#define LIBXL_DOMAIN_SCHED_PARAM_PRIORITY_MAX     1000
+
+/* RM/DM/FP-Scheduler stratgegies */
+#define LIBXL_SCHED_FP_STRAT_RM 0
+#define LIBXL_SCHED_FP_STRAT_DM 1
+#define LIBXL_SCHED_FP_STRAT_FP 2
 
 /* Per-VCPU parameters */
 #define LIBXL_SCHED_PARAM_VCPU_INDEX_DEFAULT   -1

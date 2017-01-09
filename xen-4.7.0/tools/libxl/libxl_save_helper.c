@@ -50,6 +50,7 @@
 #include "xenguest.h"
 #include "_libxl_save_msgs_helper.h"
 
+int cpsremus_do_failover = 0;
 /*----- logger -----*/
 
 __attribute__((format(printf, 5, 0)))
@@ -158,6 +159,17 @@ static void save_signal_handler(int num)
     errno = esave;
 }
 
+static void remus_failover_handler(int sig)
+{
+    char cmd[30];
+    
+    sprintf(cmd, "trigger_failover.sh %i", (int)getpid());
+
+    if (system(cmd) == -1) {
+        perror("system");
+    }
+}
+
 static void setup_signals(void (*handler)(int))
 {
     struct sigaction sa;
@@ -172,6 +184,12 @@ static void setup_signals(void (*handler)(int))
     sigemptyset(&sa.sa_mask);
     r = sigaction(SIGTERM, &sa, 0);
     if (r) fail(errno,"sigaction SIGTERM failed");
+
+    sa.sa_handler = remus_failover_handler;
+    sa.sa_flags = 0;
+    //sigemptyset(&sa.sa_mask);
+    r = sigaction(SIGUSR1, &sa, 0);
+    if (r) fail(errno, "sigaction SIGUSR1 failed");
 
     sigemptyset(&spmask);
     sigaddset(&spmask,SIGTERM);

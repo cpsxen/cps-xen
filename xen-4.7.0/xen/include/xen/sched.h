@@ -739,6 +739,9 @@ static inline struct domain *next_domain_in_cpupool(
        (_v) != NULL;                            \
        (_v) = (_v)->next_in_list )
 
+#define for_each_cpupool(ptr)    \
+    for ((ptr) = &cpupool_list; *(ptr) != NULL; (ptr) = &((*(ptr))->next))
+
 /*
  * Per-VCPU pause flags.
  */

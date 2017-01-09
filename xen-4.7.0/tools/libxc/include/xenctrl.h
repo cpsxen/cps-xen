@@ -127,6 +127,9 @@ enum xc_error_code {
 
 typedef enum xc_error_code xc_error_code;
 
+/* CPS-Remus specific global variables */
+extern int cpsremus_do_failover;   /* indicatior that failover has occured */
+
 
 /*
  *  INITIALIZATION FUNCTIONS
@@ -949,6 +952,23 @@ xc_sched_arinc653_schedule_get(
     xc_interface *xch,
     uint32_t cpupool_id,
     struct xen_sysctl_arinc653_schedule *schedule);
+
+
+int xc_sched_fp_domain_set(xc_interface *xch,
+                               uint32_t domid,
+                               struct xen_domctl_sched_fp *sdom);
+
+int xc_sched_fp_domain_get(xc_interface *xch,
+                               uint32_t domid,
+                               struct xen_domctl_sched_fp *sdom);
+
+int xc_sched_fp_schedule_set(xc_interface *xch, uint32_t poolid,
+				struct xen_sysctl_fp_schedule *schedule);
+
+int xc_sched_fp_schedule_get(xc_interface *xch, uint32_t poolid,
+				struct xen_sysctl_fp_schedule *schedule);
+int xc_sched_fp_get_wcload_on_cpu(xc_interface *xch,
+                                uint32_t cpu, struct xen_sysctl_fp_schedule *schedule);
 
 /**
  * This function sends a trigger to a domain.

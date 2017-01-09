@@ -63,6 +63,7 @@ static int write_checkpoint_record(struct xc_sr_context *ctx)
 {
     struct xc_sr_record checkpoint = { REC_TYPE_CHECKPOINT, 0, NULL };
 
+    fprintf(stderr, "libxc/xc_sr_save.c:write_checkpoint_record\n");
     return write_record(ctx, &checkpoint);
 }
 
@@ -792,6 +793,7 @@ static int save(struct xc_sr_context *ctx, uint16_t guest_type)
     xc_interface *xch = ctx->xch;
     int rc, saved_rc = 0, saved_errno = 0;
 
+    CPSREMUS_DBG_PRINTF("libxc/xc_sr_save.c:save");
     IPRINTF("Saving domain %d, type %s",
             ctx->domid, dhdr_type_to_str(guest_type));
 
@@ -926,6 +928,8 @@ int xc_domain_save(xc_interface *xch, int io_fd, uint32_t dom,
             .fd = io_fd,
         };
 
+    
+    CPSREMUS_DBG_PRINTF("libxc/xc_sr_save.c:xc_domain_save");
     /* GCC 4.4 (of CentOS 6.x vintage) can' t initialise anonymous unions. */
     ctx.save.callbacks = callbacks;
     ctx.save.live  = !!(flags & XCFLAGS_LIVE);

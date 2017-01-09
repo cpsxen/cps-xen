@@ -155,7 +155,10 @@
 #define LIBXL__LOG_ERRNO(ctx, loglevel, _f, _a...)
 #define LIBXL__LOG_ERRNOVAL(ctx, loglevel, errnoval, _f, _a...)
 #endif
-  /* all of these macros preserve errno (saving and restoring) */
+#define LIBXL__CPSREMUS_DBG_PRINT(_f, _a...) char hostname[128];\
+        gethostname(hostname, sizeof(hostname)); \
+        fprintf(stderr, "%s:%s\n", hostname, _f, ##_a); \
+/* all of these macros preserve errno (saving and restoring) */
 
 /* Convert pfn to physical address space. */
 #define pfn_to_paddr(x) ((uint64_t)(x) << XC_PAGE_SHIFT)
@@ -3261,6 +3264,7 @@ struct libxl__domain_suspend_state {
 
     libxl__xswait_state pvcontrol;
     libxl__ev_xswatch guest_watch;
+    libxl__ev_xswatch cpsremus_watch;
     libxl__ev_time guest_timeout;
 
     const char *dm_savefile;
@@ -3283,8 +3287,11 @@ struct libxl__domain_save_state {
     libxl_domain_type type;
     int live;
     int debug;
+    char *statepath;
     int checkpointed_stream;
     const libxl_domain_remus_info *remus;
+    libxl__ev_xswatch guest_watch;
+    libxl__ev_xswatch cpsremus_watch;
     /* private */
     int rc;
     int hvm;
