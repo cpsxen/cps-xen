@@ -8,7 +8,7 @@ CPS-Xen 1.2 is based upon Xen 4.7.0 version.
 
 ### How to install?
 
-The CPS-Xen version inside the xen-4.5.0 directory already contains the current CPS-Xen patches. To install CPS-Xen follow the standard build and installation instructions described in xen-4.5.0/README. For additional information please refer to http://wiki.xenproject.org/wiki/Compiling_Xen_From_Source. All of the applied patches are included in the main directory and divided into core patches - reflecting the changes made to the xen hypervisor code - and tools patches - related to the adjustments in the toolstacks.
+The CPS-Xen version inside the xen-4.7.0 directory already contains the current CPS-Xen patches. To install CPS-Xen follow the standard build and installation instructions described in xen-4.7.0/README. For additional information please refer to http://wiki.xenproject.org/wiki/Compiling_Xen_From_Source. All of the applied patches are included in the main directory and divided into core patches - reflecting the changes made to the xen hypervisor code - and tools patches - related to the adjustments in the toolstacks.
 
 Make sure to have "sched=fp" in the grub command line.
 
