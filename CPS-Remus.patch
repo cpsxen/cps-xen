@@ -1,0 +1,788 @@
+diff -urBN xen-47orig/tools/libxc/xc_private.h xen-4.7.0/tools/libxc/xc_private.h
+--- xen-47orig/tools/libxc/xc_private.h	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxc/xc_private.h	2017-02-10 15:54:30.195675000 +0100
+@@ -150,6 +150,12 @@
+         ## _a , errno, xc_strerror(xch, errno)); \
+         errno = PERROR_errno; \
+         } while (0)
++#define CPSREMUS_DBG_PRINTF(_f, _a...) do { int CPSREMUS_DBG_PRINTF_errno = errno; \
++        char hostname[128]; \
++        gethostname(hostname, sizeof(hostname)); \
++        xc_report(xch, xch->error_handler, XTL_INFO,0, "%s:%s", hostname, _f, ##_a); \
++        errno = CPSREMUS_DBG_PRINTF_errno; \
++        } while (0)
+ 
+ /*
+  * HYPERCALL ARGUMENT BUFFERS
+diff -urBN xen-47orig/tools/libxc/xc_sr_restore.c xen-4.7.0/tools/libxc/xc_sr_restore.c
+--- xen-47orig/tools/libxc/xc_sr_restore.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxc/xc_sr_restore.c	2017-02-10 15:54:30.195675000 +0100
+@@ -13,6 +13,7 @@
+     struct xc_sr_ihdr ihdr;
+     struct xc_sr_dhdr dhdr;
+ 
++    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:read_headers");
+     if ( read_exact(ctx->fd, &ihdr, sizeof(ihdr)) )
+     {
+         PERROR("Failed to read Image Header from stream");
+@@ -505,6 +506,7 @@
+     xc_interface *xch = ctx->xch;
+     int rc = 0, ret;
+     unsigned i;
++    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:handle_checkpoint");
+ 
+     if ( !ctx->restore.checkpointed )
+     {
+@@ -605,6 +607,7 @@
+     unsigned new_alloc_num;
+     struct xc_sr_record *p;
+ 
++    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:buffer_record");
+     if ( ctx->restore.buffered_rec_num >= ctx->restore.allocated_rec_num )
+     {
+         new_alloc_num = ctx->restore.allocated_rec_num + DEFAULT_BUF_RECORDS;
+@@ -630,6 +633,7 @@
+ {
+     xc_interface *xch = ctx->xch;
+     int rc = 0;
++    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:process_record");
+ 
+     switch ( rec->type )
+     {
+@@ -737,6 +741,7 @@
+     int rc, saved_rc = 0, saved_errno = 0;
+ 
+     IPRINTF("Restoring domain");
++    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:restore");
+ 
+     rc = setup(ctx);
+     if ( rc )
+@@ -799,6 +804,8 @@
+      * With Remus, if we reach here, there must be some error on primary,
+      * failover from the last checkpoint state.
+      */
++    
++    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:restore:remus_failover");
+     rc = ctx->restore.ops.stream_complete(ctx);
+     if ( rc )
+         goto err;
+@@ -847,6 +854,7 @@
+     ctx.restore.callbacks = callbacks;
+     ctx.restore.send_back_fd = send_back_fd;
+ 
++    CPSREMUS_DBG_PRINTF("libxc/xc_sr_restore.c:xc_domain_restore");
+     /* Sanity checks for callbacks. */
+     if ( stream_type )
+         assert(callbacks->checkpoint);
+diff -urBN xen-47orig/tools/libxc/xc_sr_save.c xen-4.7.0/tools/libxc/xc_sr_save.c
+--- xen-47orig/tools/libxc/xc_sr_save.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxc/xc_sr_save.c	2017-02-10 15:54:30.195675000 +0100
+@@ -63,6 +63,7 @@
+ {
+     struct xc_sr_record checkpoint = { REC_TYPE_CHECKPOINT, 0, NULL };
+ 
++    fprintf(stderr, "libxc/xc_sr_save.c:write_checkpoint_record\n");
+     return write_record(ctx, &checkpoint);
+ }
+ 
+@@ -792,6 +793,7 @@
+     xc_interface *xch = ctx->xch;
+     int rc, saved_rc = 0, saved_errno = 0;
+ 
++    CPSREMUS_DBG_PRINTF("libxc/xc_sr_save.c:save");
+     IPRINTF("Saving domain %d, type %s",
+             ctx->domid, dhdr_type_to_str(guest_type));
+ 
+@@ -926,6 +928,8 @@
+             .fd = io_fd,
+         };
+ 
++    
++    CPSREMUS_DBG_PRINTF("libxc/xc_sr_save.c:xc_domain_save");
+     /* GCC 4.4 (of CentOS 6.x vintage) can' t initialise anonymous unions. */
+     ctx.save.callbacks = callbacks;
+     ctx.save.live  = !!(flags & XCFLAGS_LIVE);
+diff -urBN xen-47orig/tools/libxl/Makefile xen-4.7.0/tools/libxl/Makefile
+--- xen-47orig/tools/libxl/Makefile	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/Makefile	2017-02-10 15:54:30.195675000 +0100
+@@ -154,7 +154,7 @@
+ 	libxlu_disk_l.o libxlu_disk.o libxlu_vif.o libxlu_pci.o
+ $(LIBXLU_OBJS): CFLAGS += $(CFLAGS_libxenctrl) # For xentoollog.h
+ 
+-CLIENTS = xl testidl libxl-save-helper
++CLIENTS = xl testidl libxl-save-helper cpsremus_heartbeat_send cpsremus_heartbeat_rcv
+ 
+ CFLAGS_XL += $(CFLAGS_libxenlight)
+ CFLAGS_XL += -Wshadow
+@@ -286,6 +286,9 @@
+ 	$(INSTALL_DIR) $(DESTDIR)$(SHAREDIR)/pkgconfig
+ 	$(INSTALL_PROG) xl $(DESTDIR)$(sbindir)
+ 	$(INSTALL_PROG) libxl-save-helper $(DESTDIR)$(LIBEXEC_BIN)
++	$(INSTALL_PROG) cpsremus_heartbeat_rcv $(DESTDIR)$(SBINDIR)
++	$(INSTALL_PROG) cpsremus_heartbeat_send $(DESTDIR)$(SBINDIR)
++	$(INSTALL_PROG) heartbeat_launcher $(DESTDIR)$(SBINDIR)
+ 	$(INSTALL_SHLIB) libxenlight.so.$(MAJOR).$(MINOR) $(DESTDIR)$(libdir)
+ 	$(SYMLINK_SHLIB) libxenlight.so.$(MAJOR).$(MINOR) $(DESTDIR)$(libdir)/libxenlight.so.$(MAJOR)
+ 	$(SYMLINK_SHLIB) libxenlight.so.$(MAJOR) $(DESTDIR)$(libdir)/libxenlight.so
+diff -urBN xen-47orig/tools/libxl/cpsremus_heartbeat_rcv.c xen-4.7.0/tools/libxl/cpsremus_heartbeat_rcv.c
+--- xen-47orig/tools/libxl/cpsremus_heartbeat_rcv.c	1970-01-01 01:00:00.000000000 +0100
++++ xen-4.7.0/tools/libxl/cpsremus_heartbeat_rcv.c	2017-02-10 15:54:30.199675000 +0100
+@@ -0,0 +1,107 @@
++#include <stdio.h>
++#include <unistd.h>
++#include <signal.h>
++#include <sys/select.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <stdlib.h>
++#include <errno.h>
++#include <fcntl.h>
++
++#define UNITS 1000 // unit is milliseconds
++
++char** parse_pids(char *pids);
++
++char** parse_pids(char *pids) {
++    char **ret;
++    
++    fprintf(stderr,"Entered parsing function\n");
++    ret = (char**)malloc(sizeof(char*)*2);
++    ret[0] = pids;  
++
++    for (;*pids != '#' && *pids != '\0'; pids++)
++      fprintf(stderr, "%c",*pids);
++    *pids = '\0';
++    ret[1] = pids+1;
++    
++    fprintf(stderr,"Leaving parsing function\n");
++    return ret;
++} 
++
++int main(int argc, char** argv)
++{
++    char hb;
++
++    pid_t remus_pid;
++    pid_t migrate_rcv_pid;
++    fd_set rdfs;
++    struct timeval tv;
++    int ret;
++    int bytes_read = 0;
++    int i = 0;
++    struct stat st_info;
++    char pids[13];
++    int fifo_fd;
++    char **pidss;
++    int timeout;
++
++    if (argc != 2) {
++        fprintf(stderr, "Not enough arguments");
++        return -1;
++    }
++
++    timeout = (pid_t)atoi(argv[1]);   
++
++    if (stat("/tmp/cpsremus_fifo", &st_info)) {
++        if (errno == ENOENT) {
++            mkfifo("/tmp/cpsremus_fifo", 0666);
++        }
++    }
++   
++    fprintf(stderr, "Opening fifo for reading.\n"); 
++    fifo_fd = open("/tmp/cpsremus_fifo", O_RDONLY);
++    
++    fprintf(stderr, "Reading pids from fifo\n");
++    bytes_read = read(fifo_fd, pids, 12);
++
++    close(fifo_fd);
++
++    fprintf(stderr, "Content of pids is: %s after %i bytes read.\n", pids, bytes_read);
++    
++    pidss = parse_pids(pids);
++    fprintf(stderr, "pidss[0] = %s\n",pidss[0]);
++    fprintf(stderr, "pidss[1] = %s\n",pidss[1]);
++    fflush(stderr);
++    remus_pid = atoi(pidss[0]);
++    migrate_rcv_pid = atoi(pidss[1]);
++
++    free(pidss);
++    fprintf(stderr, "Pid of save-helper is %i\n",remus_pid);
++
++    do {
++        FD_ZERO(&rdfs);
++        FD_SET(0, &rdfs);
++
++        tv.tv_sec = timeout/UNITS;
++        tv.tv_usec = timeout%UNITS*1000;
++        ret = select(1, &rdfs, NULL, NULL, &tv);
++        
++        if (!ret) {
++            fprintf(stderr, "No heartbeat from primary within 2 seconds. Failover.\n");
++            kill(remus_pid, SIGUSR1);
++            return 1;
++        }
++
++        printf("%i",i);
++        if (FD_ISSET(0, &rdfs)) {
++            bytes_read = read(0, &hb, 1);
++            printf("%c",hb);
++        }
++        i++;
++    } while ( bytes_read > 0 );
++    
++    fprintf(stderr, "No heartbeat from primary within 2 seconds. Failover.\n");
++    kill(remus_pid, SIGUSR1);
++
++    return 1;
++}   
+diff -urBN xen-47orig/tools/libxl/cpsremus_heartbeat_send.c xen-4.7.0/tools/libxl/cpsremus_heartbeat_send.c
+--- xen-47orig/tools/libxl/cpsremus_heartbeat_send.c	1970-01-01 01:00:00.000000000 +0100
++++ xen-4.7.0/tools/libxl/cpsremus_heartbeat_send.c	2017-02-10 15:54:30.199675000 +0100
+@@ -0,0 +1,27 @@
++#include <stdio.h>
++#include <stdlib.h>
++#include <unistd.h>
++
++#define PERCENTAGE 33 // percentage of timeout to be used as period for heartbeat signal
++#define UNITS 1000 // use units of 1000 microseconds for period
++
++int main(int argc, char *argv[]) {
++
++    unsigned int timeout;
++    unsigned int period;
++
++    if (argc != 2) {
++        fprintf(stderr, "error. sender must be started with an interval specification.\n");
++        return -1;
++    }
++
++    timeout = atoi(argv[1]);
++    period = timeout*PERCENTAGE/100;
++
++    while(1) {
++        fprintf(stdout, "h\n");
++        fflush(stdout);
++        usleep(period*UNITS);
++    }
++    return -1;
++}
+diff -urBN xen-47orig/tools/libxl/heartbeat_launcher xen-4.7.0/tools/libxl/heartbeat_launcher
+--- xen-47orig/tools/libxl/heartbeat_launcher	1970-01-01 01:00:00.000000000 +0100
++++ xen-4.7.0/tools/libxl/heartbeat_launcher	2017-02-10 15:54:30.199675000 +0100
+@@ -0,0 +1,3 @@
++#!/bin/sh
++
++cpsremus_heartbeat_send $2 | ssh $1 "cpsremus_heartbeat_rcv $2 &> /var/log/cpsremus.log" 
+diff -urBN xen-47orig/tools/libxl/libxl.c xen-4.7.0/tools/libxl/libxl.c
+--- xen-47orig/tools/libxl/libxl.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxl.c	2017-02-10 15:54:30.199675000 +0100
+@@ -861,6 +861,8 @@
+                              !libxl_defbool_val(info->colo));
+     libxl_defbool_setdefault(&info->netbuf, true);
+     libxl_defbool_setdefault(&info->diskbuf, true);
++    libxl_defbool_setdefault(&info->event_driven, false);
++    libxl_defbool_setdefault(&info->polling, false);
+ 
+     if (libxl_defbool_val(info->colo) &&
+         libxl_defbool_val(info->compression)) {
+@@ -890,6 +891,32 @@
+     dss->live = 1;
+     dss->debug = 0;
+     dss->remus = info;
++    dss->statepath = NULL;
++
++    if (libxl_defbool_val(info->event_driven)) {
++        /* Check if DomU has support for event-driven checkpointing */
++        xs_transaction_t t = 0;
++        int trc = 0;
++        
++        trc = libxl__xs_transaction_start(gc, &t);
++        char *dompath = libxl__xs_get_dompath(gc, dss->domid);
++        char *statepath = libxl__sprintf(gc, "%s/data/ha", dompath);
++
++        if (trc) {
++            LOG(ERROR, "Remus: Failed to check DomU support");
++            goto out;
++        }
++
++        if (!libxl__xs_read(gc, t, statepath)) {
++            libxl__xs_transaction_abort(gc, &t);
++            LOG(ERROR, "CPS-Remus: Event-driven checkpointing not supported by domain. Aborting.");
++            goto out;
++        }
++        
++        libxl__xs_transaction_abort(gc, &t);
++        dss->statepath = statepath;
++    }
++
+     if (libxl_defbool_val(info->colo))
+         dss->checkpointed_stream = LIBXL_CHECKPOINTED_STREAM_COLO;
+     else
+@@ -3771,6 +3798,25 @@
+     }
+ }
+ 
++int libxl_device_nic_send_gratuitous_arp(libxl_ctx *ctx, libxl_device_nic *nic)
++{
++    GC_INIT(ctx);
++    char mac[18];
++    int rc;
++    char *cmd;
++
++    sprintf(mac, LIBXL_MAC_FMT, LIBXL_MAC_BYTES(nic->mac)); 
++    cmd = libxl__sprintf(gc, "send_arp %s %s %s ff:ff:ff:ff:ff:ff %s %s ff:ff:ff:ff:ff:ff request", nic->ip, mac, nic->ip, nic->bridge, mac);  
++    fprintf(stderr, "Updating arp for ip %s and mac %s on bridge %s\n", nic->ip, mac, nic->bridge);
++    rc = system(cmd);
++    if (rc)
++        fprintf(stderr, "Unable to send arp packet\n");
++
++    GC_FREE;
++    return rc;
++}
++
++
+ /******************************************************************************/
+ int libxl__device_console_add(libxl__gc *gc, uint32_t domid,
+                               libxl__device_console *console,
+@@ -6288,6 +6334,139 @@
+     return 0;
+ }
+diff -urBN xen-47orig/tools/libxl/libxl.h xen-4.7.0/tools/libxl/libxl.h
+--- xen-47orig/tools/libxl/libxl.h	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxl.h	2017-02-10 15:54:30.203675000 +0100
+@@ -1699,6 +1699,7 @@
+ int libxl_device_nic_getinfo(libxl_ctx *ctx, uint32_t domid,
+                               libxl_device_nic *nic, libxl_nicinfo *nicinfo);
+ 
++int libxl_device_nic_send_gratuitous_arp(libxl_ctx *ctx, libxl_device_nic *nic);
+ /*
+  * Virtual Channels
+  * Channels manifest as consoles with names, see docs/misc/channels.txt
+diff -urBN xen-47orig/tools/libxl/libxl_dom.c xen-4.7.0/tools/libxl/libxl_dom.c
+--- xen-47orig/tools/libxl/libxl_dom.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxl_dom.c	2017-02-10 15:54:30.207675000 +0100
+@@ -1232,6 +1232,7 @@
+         errno = e;
+     }
+ 
++    LIBXL__CPSREMUS_DBG_PRINT("libxl_dom.c:remus_devices_postsuspend_cb");
+     if (rc)
+         LOGE(ERROR, "cannot write/rename %s for %s", newfilename, filename);
+ out:
+diff -urBN xen-47orig/tools/libxl/libxl_dom_suspend.c xen-4.7.0/tools/libxl/libxl_dom_suspend.c
+--- xen-47orig/tools/libxl/libxl_dom_suspend.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxl_dom_suspend.c	2017-02-10 15:54:30.207675000 +0100
+@@ -33,8 +33,11 @@
+     libxl__xswait_init(&dsps->pvcontrol);
+     libxl__ev_evtchn_init(&dsps->guest_evtchn);
+     libxl__ev_xswatch_init(&dsps->guest_watch);
++    libxl__ev_xswatch_init(&dsps->cpsremus_watch);
+     libxl__ev_time_init(&dsps->guest_timeout);
+ 
++    libxl__ev_xswatch_deregister(gc, &dsps->cpsremus_watch);
++
+     if (type == LIBXL_DOMAIN_TYPE_INVALID) goto out;
+     dsps->type = type;
+ 
+diff -urBN xen-47orig/tools/libxl/libxl_internal.h xen-4.7.0/tools/libxl/libxl_internal.h
+--- xen-47orig/tools/libxl/libxl_internal.h	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxl_internal.h	2017-02-10 15:54:30.211675000 +0100
+@@ -155,7 +155,10 @@
+ #define LIBXL__LOG_ERRNO(ctx, loglevel, _f, _a...)
+ #define LIBXL__LOG_ERRNOVAL(ctx, loglevel, errnoval, _f, _a...)
+ #endif
+-  /* all of these macros preserve errno (saving and restoring) */
++#define LIBXL__CPSREMUS_DBG_PRINT(_f, _a...) char hostname[128];\
++        gethostname(hostname, sizeof(hostname)); \
++        fprintf(stderr, "%s:%s\n", hostname, _f, ##_a); \
++/* all of these macros preserve errno (saving and restoring) */
+ 
+ /* Convert pfn to physical address space. */
+ #define pfn_to_paddr(x) ((uint64_t)(x) << XC_PAGE_SHIFT)
+@@ -3261,6 +3264,7 @@
+ 
+     libxl__xswait_state pvcontrol;
+     libxl__ev_xswatch guest_watch;
++    libxl__ev_xswatch cpsremus_watch;
+     libxl__ev_time guest_timeout;
+ 
+     const char *dm_savefile;
+@@ -3283,8 +3287,11 @@
+     libxl_domain_type type;
+     int live;
+     int debug;
++    char *statepath;
+     int checkpointed_stream;
+     const libxl_domain_remus_info *remus;
++    libxl__ev_xswatch guest_watch;
++    libxl__ev_xswatch cpsremus_watch;
+     /* private */
+     int rc;
+     int hvm;
+diff -urBN xen-47orig/tools/libxl/libxl_remus.c xen-4.7.0/tools/libxl/libxl_remus.c
+--- xen-47orig/tools/libxl/libxl_remus.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxl_remus.c	2017-02-10 15:54:30.211675000 +0100
+@@ -288,6 +288,10 @@
+                                   const struct timeval *requested_abs,
+                                   int rc);
+ 
++static void cpsremus_next_checkpoint(libxl__egc *egc, libxl__ev_xswatch *ev, 
++                                     const char *watch_path,
++                                     const char *event_path);
++
+ static void libxl__remus_domain_save_checkpoint_callback(void *data)
+ {
+     libxl__save_helper_state *shs = data;
+@@ -326,6 +330,7 @@
+                                     libxl__checkpoint_devices_state *cds,
+                                     int rc)
+ {
++    static int count = 0;
+     libxl__domain_save_state *dss = CONTAINER_OF(cds, *dss, cds);
+ 
+     STATE_AO_GC(dss->ao);
+@@ -342,11 +347,22 @@
+      * interval to checkpoint the guest again. Until then, let the guest
+      * continue execution.
+      */
+-
+-    /* Set checkpoint interval timeout */
+-    rc = libxl__ev_time_register_rel(ao, &dss->rs.checkpoint_timeout,
+-                                     remus_next_checkpoint,
+-                                     dss->rs.interval);
++    if (libxl_defbool_val(dss->remus->event_driven)) {
++        LOG(WARN, "Activated CPS-Remus. Statepath for watch is %s\n", dss->statepath);
++        /* Use event-driven checkpointing */
++        LOG(WARN, "Count is: %d", count);
++        if (!count) {
++            LOG(WARN, ">>>>> Registering xswatch on statepath: %s\n", dss->statepath);
++            libxl__ev_xswatch_register(gc, &dss->cpsremus_watch, cpsremus_next_checkpoint, dss->statepath);
++            count++;
++
++        }
++    } else {
++        /* Set checkpoint interval timeout */
++        rc = libxl__ev_time_register_rel(ao, &dss->rs.checkpoint_timeout,
++                                         remus_next_checkpoint,
++                                         dss->rs.interval);
++    }
+ 
+     if (rc)
+         goto out;
+@@ -378,9 +394,46 @@
+     if (rc)
+         dss->rc = rc;
+ 
+-    libxl__xc_domain_saverestore_async_callback_done(egc, &dss->sws.shs, !rc);
++    if (libxl_defbool_val(dss->remus->polling)) {
++        xs_transaction_t t = 0;
++        if (!libxl__xs_transaction_start(gc, &t)) {
++            int state = atoi(libxl__xs_read(gc, t, dss->statepath));
++            if (state > 0) {
++                //libxl__xs_write(gc, t, dss->statepath, "%d", 0);
++                libxl__xc_domain_saverestore_async_callback_done(egc, &dss->sws.shs, !rc);
++            } else {
++                libxl__ev_time_register_rel(ao, &dss->rs.checkpoint_timeout,
++                                         remus_next_checkpoint,
++                                         dss->rs.interval);
++            }
++            libxl__xs_transaction_commit(gc, &t);
++        }
++    } else
++        libxl__xc_domain_saverestore_async_callback_done(egc, &dss->sws.shs, !rc);
+ }
+ 
++static void cpsremus_next_checkpoint(libxl__egc *egc, libxl__ev_xswatch *ev,
++                                     const char *watch_path,
++                                     const char *event_path)
++{
++    libxl__domain_save_state *dss =
++                            CONTAINER_OF(ev, *dss, cpsremus_watch);
++
++    STATE_AO_GC(dss->ao);
++    LIBXL__CPSREMUS_DBG_PRINT("libxl_dom.c:remus_next_checkpoint");
++
++    /*
++     * Time to checkpoint the guest again. We return 1 to libxc
++     * (xc_domain_save.c). in order to continue executing the infinite loop
++     * (suspend, checkpoint, resume) in xc_domain_save().
++     */
++
++    int rc = 0;
++    dss->rc = 0;
++
++    libxl__xc_domain_saverestore_async_callback_done(egc, &dss->sws.shs, !rc);
++} 
++
+ /*---------------------- remus callbacks (restore) -----------------------*/
+ 
+ /*----- remus asynchronous checkpoint callback -----*/
+diff -urBN xen-47orig/tools/libxl/libxl_save_callout.c xen-4.7.0/tools/libxl/libxl_save_callout.c
+--- xen-47orig/tools/libxl/libxl_save_callout.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxl_save_callout.c	2017-02-10 15:54:30.211675000 +0100
+@@ -12,6 +12,9 @@
+  * GNU Lesser General Public License for more details.
+  */
+ 
++#define _GNU_SOURCE
++#include <sys/stat.h>
++
+ #include "libxl_osdeps.h"
+ 
+ #include "libxl_internal.h"
+@@ -231,6 +234,32 @@
+                     -1,
+                     args[0], (char**)args, 0);
+     }
++    
++    pid_t ppid = getpid();
++
++    struct stat stinfo;
++
++    if (stat("/tmp/cpsremus_fifo", &stinfo)) {
++      if (errno == ENOENT) {
++        int ret = mkfifo("/tmp/cpsremus_fifo", 0666);
++        LOGE(WARN, "created fifo with return code %i", ret);
++      }
++    } else {
++      if (!S_ISFIFO(stinfo.st_mode))
++        LOGE(WARN, "cspremus_fifo is not a named pipe.");
++    }
++
++    int fifo_fd = open("/tmp/cpsremus_fifo", O_WRONLY|O_NONBLOCK);
++    char *pid_s; 
++    int pid_s_len = asprintf(&pid_s,"%i#%i",pid, ppid);
++
++    if (write(fifo_fd, (void*)pid_s, pid_s_len+1) != pid_s_len+1) {
++        LOGE(WARN, "unable to write pids to fifo file.");
++    }
++
++    close(fifo_fd);
++
++    LOGE(WARN,"PID of save_helper is %i\n", (int)pid);
+ 
+     libxl__carefd_close(childs_pipes[0]);
+     libxl__carefd_close(childs_pipes[1]);
+diff -urBN xen-47orig/tools/libxl/libxl_save_helper.c xen-4.7.0/tools/libxl/libxl_save_helper.c
+--- xen-47orig/tools/libxl/libxl_save_helper.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxl_save_helper.c	2017-02-10 15:54:30.215675000 +0100
+@@ -50,6 +50,7 @@
+ #include "xenguest.h"
+ #include "_libxl_save_msgs_helper.h"
+ 
++int cpsremus_do_failover = 0;
+ /*----- logger -----*/
+ 
+ __attribute__((format(printf, 5, 0)))
+@@ -158,6 +159,17 @@
+     errno = esave;
+ }
+ 
++static void remus_failover_handler(int sig)
++{
++    char cmd[30];
++    
++    sprintf(cmd, "trigger_failover.sh %i", (int)getpid());
++
++    if (system(cmd) == -1) {
++        perror("system");
++    }
++}
++
+ static void setup_signals(void (*handler)(int))
+ {
+     struct sigaction sa;
+@@ -173,6 +185,12 @@
+     r = sigaction(SIGTERM, &sa, 0);
+     if (r) fail(errno,"sigaction SIGTERM failed");
+ 
++    sa.sa_handler = remus_failover_handler;
++    sa.sa_flags = 0;
++    //sigemptyset(&sa.sa_mask);
++    r = sigaction(SIGUSR1, &sa, 0);
++    if (r) fail(errno, "sigaction SIGUSR1 failed");
++
+     sigemptyset(&spmask);
+     sigaddset(&spmask,SIGTERM);
+     r = sigprocmask(SIG_UNBLOCK,&spmask,0);
+diff -urBN xen-47orig/tools/libxl/libxl_stream_read.c xen-4.7.0/tools/libxl/libxl_stream_read.c
+--- xen-47orig/tools/libxl/libxl_stream_read.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxl_stream_read.c	2017-02-10 15:54:30.215675000 +0100
+@@ -780,6 +780,9 @@
+ 
+     assert(stream->in_checkpoint);
+ 
++    if (cpsremus_do_failover)
++        ret = XGR_CHECKPOINT_FAILOVER; // if we are here a failover has been signaled by heartbeat receiver
++
+     if (rc == 0)
+         ret = XGR_CHECKPOINT_SUCCESS;
+     else if (stream->phase == SRS_PHASE_BUFFERING)
+diff -urBN xen-47orig/tools/libxl/libxlu_cfg_l.c xen-4.7.0/tools/libxl/libxlu_cfg_l.c
+--- xen-47orig/tools/libxl/libxlu_cfg_l.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxlu_cfg_l.c	2017-02-10 15:54:30.215675000 +0100
+@@ -617,10 +617,6 @@
+ 
+ void xlu__cfg_yyset_lineno (int line_number ,yyscan_t yyscanner );
+ 
+-int xlu__cfg_yyget_column  (yyscan_t yyscanner );
+-
+-void xlu__cfg_yyset_column (int column_no ,yyscan_t yyscanner );
+-
+ YYSTYPE * xlu__cfg_yyget_lval (yyscan_t yyscanner );
+ 
+ void xlu__cfg_yyset_lval (YYSTYPE * yylval_param ,yyscan_t yyscanner );
+diff -urBN xen-47orig/tools/libxl/libxlu_cfg_l.h xen-4.7.0/tools/libxl/libxlu_cfg_l.h
+--- xen-47orig/tools/libxl/libxlu_cfg_l.h	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxlu_cfg_l.h	2017-02-10 15:54:30.215675000 +0100
+@@ -276,10 +276,6 @@
+ 
+ void xlu__cfg_yyset_lineno (int line_number ,yyscan_t yyscanner );
+ 
+-int xlu__cfg_yyget_column  (yyscan_t yyscanner );
+-
+-void xlu__cfg_yyset_column (int column_no ,yyscan_t yyscanner );
+-
+ YYSTYPE * xlu__cfg_yyget_lval (yyscan_t yyscanner );
+ 
+ void xlu__cfg_yyset_lval (YYSTYPE * yylval_param ,yyscan_t yyscanner );
+@@ -356,6 +352,6 @@
+ 
+ #line 103 "libxlu_cfg_l.l"
+ 
+-#line 360 "libxlu_cfg_l.h"
++#line 356 "libxlu_cfg_l.h"
+ #undef xlu__cfg_yyIN_HEADER
+ #endif /* xlu__cfg_yyHEADER_H */
+diff -urBN xen-47orig/tools/libxl/xl.c xen-4.7.0/tools/libxl/xl.c
+--- xen-47orig/tools/libxl/xl.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/xl.c	2017-02-10 15:54:30.219675000 +0100
+@@ -48,7 +48,7 @@
+ char *default_colo_proxy_script = NULL;
+ enum output_format default_output_format = OUTPUT_FORMAT_JSON;
+ int claim_mode = 1;
+-bool progress_use_cr = 0;
++bool progress_use_cr = 1;
+ 
+ xentoollog_level minmsglevel = minmsglevel_default;
+ 
+diff -urBN xen-47orig/tools/libxl/xl_cmdimpl.c xen-4.7.0/tools/libxl/xl_cmdimpl.c
+--- xen-47orig/tools/libxl/xl_cmdimpl.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/xl_cmdimpl.c	2017-02-10 15:54:30.223675000 +0100
+@@ -4752,6 +4752,8 @@
+     char rc_buf;
+     char *migration_domname;
+     struct domain_create dom_info;
++    int nb, i;
++    libxl_device_nic *nics;
+     const char *ha = checkpointed == LIBXL_CHECKPOINTED_STREAM_COLO ?
+                      "COLO" : "Remus";
+ 
+@@ -4822,6 +4824,17 @@
+             fprintf(stderr, "migration target (%s): "
+                     "Failed to unpause domain %s (id: %u):%d\n",
+                     ha, common_domname, domid, rc);
++        /*
++         * For a fast network failover we need to send a gratuitous
++         * arp request for all nics used by the restored domain.
++         */
++        nics = libxl_device_nic_list(ctx, domid, &nb);
++        if (nics && nb) {
++            for (i = 0; i < nb; ++i) {
++                libxl_device_nic_send_gratuitous_arp(ctx, &nics[i]);
++            }
++        }
++
+ 
+         exit(rc ? EXIT_FAILURE : EXIT_SUCCESS);
+     default:
+@@ -8690,15 +8929,21 @@
+     libxl_domain_remus_info r_info;
+     int send_fd = -1, recv_fd = -1;
+     pid_t child = -1;
++    pid_t hb_child = -1;
++    pid_t hb_child_pgid;
+     uint8_t *config_data;
+     int config_len;
++    char *runhb;
+ 
+     memset(&r_info, 0, sizeof(libxl_domain_remus_info));
+ 
+-    SWITCH_FOREACH_OPT(opt, "Fbundi:s:N:ec", NULL, "remus", 2) {
++    SWITCH_FOREACH_OPT(opt, "Fbundi:s:N:ecEpt:", NULL, "remus", 2) {
+     case 'i':
+         r_info.interval = atoi(optarg);
+         break;
++    case 't':
++        r_info.timeout = atoi(optarg);
++        break;
+     case 'F':
+         libxl_defbool_set(&r_info.allow_unsafe, true);
+         break;
+@@ -8725,6 +8970,10 @@
+         break;
+     case 'c':
+         libxl_defbool_set(&r_info.colo, true);
++        break;
++    case 'E':
++        libxl_defbool_set(&r_info.event_driven, true);
++        break;
+     }
+ 
+     domid = find_domain(argv[optind]);
+@@ -8774,6 +9023,7 @@
+                           ssh_command, host,
+                           "-r",
+                           daemonize ? "" : " -e");
++                xasprintf(&runhb, "exec heartbeat_launcher %s %i", host, r_info.timeout);
+             } else {
+                 xasprintf(&rune, "exec %s %s xl migrate-receive %s %s %s %s",
+                           ssh_command, host,
+@@ -8786,6 +9036,16 @@
+ 
+         save_domain_core_begin(domid, NULL, &config_data, &config_len);
+ 
++        hb_child = fork();
++        
++        if (!hb_child) {
++            if (system(runhb) != 0) {
++                fprintf(stderr, "Could not initiate heartbeat. Aborting");
++                exit(1);
++            }
++            exit(0);
++        }
++
+         if (!config_len) {
+             fprintf(stderr, "No config file stored for running domain and "
+                     "none supplied - cannot start remus.\n");
+@@ -8826,6 +9086,17 @@
+         libxl_domain_resume(ctx, domid, 1, 0);
+     }
+ 
++    hb_child_pgid = getpgid(hb_child);
++    if (hb_child == -1) {
++        fprintf(stderr, "Something ist wrong here. Cannot kill child processes\n");
++        close(send_fd);
++        return EXIT_FAILURE;
++    }
++    if (kill(-hb_child_pgid, SIGTERM)) {
++        fprintf(stderr, "Unable to terminate heartbeat child processes. Killing them.\n");
++        kill(-hb_child_pgid, SIGKILL);
++    }
++
+     close(send_fd);
+     return EXIT_FAILURE;
+ }
+diff -urBN xen-47orig/tools/libxl/xl_cmdtable.c xen-4.7.0/tools/libxl/xl_cmdtable.c
+--- xen-47orig/tools/libxl/xl_cmdtable.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/xl_cmdtable.c	2017-02-10 15:54:30.223675000 +0100
+@@ -505,6 +517,9 @@
+       "-d                      Disable disk replication. Works only in unsafe mode.\n"
+       "-c                      Enable COLO HA. It is conflict with -i and -b, and memory\n"
+       "                        checkpoint must be disabled"
++      "-E                      Use event-driven instead of periodic checkpointing. Needs DomU support.\n"
++      "-t                      Timeout for heartbeat after which failover shall be triggered.\n"
++      "-p                      When -E is activated poll for events instead of blocking.\n"
+     },
+ #endif
+     { "devd",
