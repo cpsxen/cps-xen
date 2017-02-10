@@ -8,9 +8,11 @@ CPS-Xen 1.2 is based upon Xen 4.7.0 version.
 
 ### How to install?
 
-The CPS-Xen version inside the xen-4.5.0 directory already contains the current CPS-Xen patches. To install CPS-Xen follow the standard build and installation instructions described in xen-4.5.0/README. For additional information please refer to http://wiki.xenproject.org/wiki/Compiling_Xen_From_Source. All of the applied patches are included in the main directory and divided into core patches - reflecting the changes made to the xen hypervisor code - and tools patches - related to the adjustments in the toolstacks.
+The CPS-Xen version inside the xen-4.7.0 directory already contains the current CPS-Xen patches. To install CPS-Xen follow the standard build and installation instructions described in xen-4.7.0/README. For additional information please refer to http://wiki.xenproject.org/wiki/Compiling_Xen_From_Source. All of the applied patches are included in the main directory and divided into core patches - reflecting the changes made to the xen hypervisor code - and tools patches - related to the adjustments in the toolstacks.
 
 Make sure to have "sched=fp" in the grub command line.
+
+To patch a default Xen with CPS-Xen apply the patch CPS-Xen.patch in the root directory. Applying the CPS-Remus.patch file to the upstream sources of Xen 4.7, it is also possible to use CPS-Remus without CPS-Xen.
 
 ### Features of CPS-Xen 1.2 
 
@@ -20,7 +22,9 @@ The current CPS-Xen version allows to switch on the fly between the following th
 * Rate-monotonic scheduling (RM)
 * Deadline-monotonic scheduling (DM)
  
-CPS-Xen 1.1 also introduces an explicit event-based mechanism for checkpointing of paravirtualized virtual machines (PVM). This allows a PVM itself to determine the moment in time for checkpointing rather than being dependent on a periodical event. This functionality is implemented as an extention to Remus(a high availability extension for Xen)[2,3]. 
+CPS-Xen 1.1 introduced an explicit event-based mechanism for checkpointing of paravirtualized virtual machines (PVM). This allows a PVM itself to determine the moment in time for checkpointing rather than being dependent on a periodical event. This functionality is implemented as an extention to Remus(a high availability extension for Xen)[2,3]. 
+
+In CPS-Xen 1.2 CPS-Remus is now based on the novel Migration v2 technology.
 
 ### How to use?
 
