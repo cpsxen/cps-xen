@@ -980,7 +980,7 @@ fp_do_schedule (const struct scheduler *ops, s_time_t now,
 
 //    ret.time = MICROSECS (50);   //MILLISECS(1);
 //    ret.time = MICROSECS (snext->slice - snext->cputime); //MILLISECS(1); //MICROSECS (10);   //MILLISECS(1);
-    ret.time = MICROSECS (100);   //MILLISECS(1);
+    ret.time = MICROSECS (10);   //MILLISECS(1);
     ret.task = snext->vcpu;
     return ret;
 }
