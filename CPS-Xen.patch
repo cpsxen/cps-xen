@@ -1241,6 +1241,7 @@ diff -urBN xen-47orig/tools/libxc/include/xenctrl.h xen-4.7.0/tools/libxc/includ
 +
  /**
   * This function sends a trigger to a domain.
+  *
 diff -urBN xen-47orig/tools/libxc/xc_fp.c xen-4.7.0/tools/libxc/xc_fp.c
 --- xen-47orig/tools/libxc/xc_fp.c	1970-01-01 01:00:00.000000000 +0100
 +++ xen-4.7.0/tools/libxc/xc_fp.c	2017-02-10 15:54:30.191675000 +0100

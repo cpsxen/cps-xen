@@ -118,9 +118,9 @@ diff -urBN xen-47orig/tools/libxl/Makefile xen-4.7.0/tools/libxl/Makefile
  	$(INSTALL_DIR) $(DESTDIR)$(SHAREDIR)/pkgconfig
  	$(INSTALL_PROG) xl $(DESTDIR)$(sbindir)
  	$(INSTALL_PROG) libxl-save-helper $(DESTDIR)$(LIBEXEC_BIN)
-+	$(INSTALL_PROG) cpsremus_heartbeat_rcv $(DESTDIR)$(SBINDIR)
-+	$(INSTALL_PROG) cpsremus_heartbeat_send $(DESTDIR)$(SBINDIR)
-+	$(INSTALL_PROG) heartbeat_launcher $(DESTDIR)$(SBINDIR)
++	$(INSTALL_PROG) cpsremus_heartbeat_rcv $(DESTDIR)$(sbindir)
++	$(INSTALL_PROG) cpsremus_heartbeat_send $(DESTDIR)$(sbindir)
++	$(INSTALL_PROG) heartbeat_launcher $(DESTDIR)$(sbindir)
  	$(INSTALL_SHLIB) libxenlight.so.$(MAJOR).$(MINOR) $(DESTDIR)$(libdir)
  	$(SYMLINK_SHLIB) libxenlight.so.$(MAJOR).$(MINOR) $(DESTDIR)$(libdir)/libxenlight.so.$(MAJOR)
  	$(SYMLINK_SHLIB) libxenlight.so.$(MAJOR) $(DESTDIR)$(libdir)/libxenlight.so
@@ -344,9 +344,6 @@ diff -urBN xen-47orig/tools/libxl/libxl.c xen-4.7.0/tools/libxl/libxl.c
  /******************************************************************************/
  int libxl__device_console_add(libxl__gc *gc, uint32_t domid,
                                libxl__device_console *console,
-@@ -6288,6 +6334,139 @@
-     return 0;
- }
 diff -urBN xen-47orig/tools/libxl/libxl.h xen-4.7.0/tools/libxl/libxl.h
 --- xen-47orig/tools/libxl/libxl.h	2016-06-20 12:38:15.000000000 +0200
 +++ xen-4.7.0/tools/libxl/libxl.h	2017-02-10 15:54:30.203675000 +0100
