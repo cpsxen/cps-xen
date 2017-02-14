@@ -1,0 +1,1977 @@
+diff -urBN xen-47orig/xen/common/Makefile xen-4.7.0/xen/common/Makefile
+--- xen-47orig/xen/common/Makefile	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/xen/common/Makefile	2017-02-10 15:54:31.235675000 +0100
+@@ -37,6 +37,7 @@
+ obj-$(CONFIG_SCHED_CREDIT) += sched_credit.o
+ obj-$(CONFIG_SCHED_CREDIT2) += sched_credit2.o
+ obj-$(CONFIG_SCHED_RTDS) += sched_rt.o
++obj-y += sched_fp.o
+ obj-y += schedule.o
+ obj-y += shutdown.o
+ obj-y += softirq.o
+diff -urBN xen-47orig/xen/common/cpupool.c xen-4.7.0/xen/common/cpupool.c
+--- xen-47orig/xen/common/cpupool.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/xen/common/cpupool.c	2017-02-10 15:54:31.239675000 +0100
+@@ -20,13 +20,11 @@
+ #include <xen/keyhandler.h>
+ #include <xen/cpu.h>
+ 
+-#define for_each_cpupool(ptr)    \
+-    for ((ptr) = &cpupool_list; *(ptr) != NULL; (ptr) = &((*(ptr))->next))
+-
+ struct cpupool *cpupool0;                /* Initial cpupool with Dom0 */
+ cpumask_t cpupool_free_cpus;             /* cpus not in any cpupool */
+ 
+-static struct cpupool *cpupool_list;     /* linked list, sorted by poolid */
++//static struct cpupool *cpupool_list;     /* linked list, sorted by poolid */
++struct cpupool *cpupool_list; 
+ 
+ static int cpupool_moving_cpu = -1;
+ static struct cpupool *cpupool_cpu_moving = NULL;
+diff -urBN xen-47orig/xen/common/sched_fp.c xen-4.7.0/xen/common/sched_fp.c
+--- xen-47orig/xen/common/sched_fp.c	1970-01-01 01:00:00.000000000 +0100
++++ xen-4.7.0/xen/common/sched_fp.c	2017-02-10 15:54:31.251675000 +0100
+@@ -0,0 +1,1061 @@
++/* Preemptive RM/DM/Fixed-Priority Scheduler of Xen
++ *
++ * by Boguslaw Jablkowski, Michael Müller (C)  2014 Technische Universität Dortmund
++ * based on code of Credit and SEDF Scheduler
++ *
++ * This scheduler allows the usage of three scheduling strategies:
++ * - Rate-Monotonic
++ * - Deadline-Monotonic
++ * - and Fixed Priority.
++ * Furthermore it allows the dynamic switching of strategies on runtime.
++ */
++
++#include <xen/config.h>
++#include <xen/init.h>
++#include <xen/lib.h>
++#include <xen/sched.h>
++#include <xen/domain.h>
++#include <xen/delay.h>
++#include <xen/event.h>
++#include <xen/time.h>
++#include <xen/perfc.h>
++#include <xen/sched-if.h>
++#include <xen/softirq.h>
++#include <asm/atomic.h>
++#include <xen/errno.h>
++#include <xen/keyhandler.h>
++#include <xen/guest_access.h>
++
++/*Verbosity level
++ * 0 no information
++ * 1 print function calls
++ * 2 print additional infos
++ * 3 print ingoing and outgoing vcpu in do_schedule()
++ * 4 print run queue
++  */
++#define DLEVEL 0
++#define PRINT(_f, _a...)                        \
++    do {                                        \
++        if ( (_f) == DLEVEL )                \
++            printk(_a );                        \
++    } while ( 0 )
++
++
++/* Macros */
++#define FPSCHED_PRIV(_ops)   \
++    ((struct fpsched_private *)((_ops)->sched_data))
++#define CPU_INFO(cpu)  \
++    ((struct fp_cpu *)per_cpu(schedule_data, cpu).sched_priv)
++#define RUNQ(cpu)      (&(CPU_INFO(cpu)->runq))
++#define WAITQ(cpu)      (&(CPU_INFO(cpu)->waitq))
++#define LIST(_vcpu) (&_vcpu->queue_elem)
++#define FP_CPUONLINE(_pool)                                             \
++    (((_pool) == NULL) ? &cpupool_free_cpus : (_pool)->cpu_valid)
++#define FPSCHED_VCPU(_vcpu)  ((struct fp_vcpu *) (_vcpu)->sched_priv)
++#define FPSCHED_DOM(_dom)    ((struct fp_dom *) (_dom)->sched_priv)
++#define VM_SCHED_PRIO(_prio, _fpv) (FPSCHED_PRIV(ops)->strategy != FP? VM_STANDARD_PRIO((_fpv)) : (_prio))
++
++/* Default parameters for VM, dom0 and Idle Domain */
++/* Priorities */
++#define VM_DOM0_PRIO 1000
++#define VM_IDLE_PRIO 0
++
++/* Slices */
++#define VM_STANDARD_SLICE MICROSECS(500)
++#define VM_DOM0_SLICE  MICROSECS(900)
++
++/* Periods */
++#define VM_STANDARD_PERIOD MICROSECS(1000)
++#define VM_DOM0_PERIOD  MICROSECS(1000)
++
++/* Strategies */
++#define RM 0                    /* rate-monotonic */
++#define DM 1                    /* deadline-monotonic */
++#define FP 2                    /* fixed-priority */
++
++//static DEFINE_SPINLOCK(cpupool_lock);
++
++/* Print delay */
++#define DELTA 10000000000
++
++
++/*
++ * Physical CPU
++ */
++struct fp_cpu {
++    struct list_head runq;
++};
++
++/*
++ * Virtual CPU
++ */
++struct fp_vcpu {
++    struct list_head queue_elem;
++    struct vcpu *vcpu;
++    //struct fp_dom *sdom;
++    int priority;
++
++    s_time_t period;   /*=(relative deadline)*/
++    s_time_t slice;   /*=worst case execution time*/
++    s_time_t deadline;  /*=deadline*/
++
++    /*
++     * Bookkeeping
++     */
++    s_time_t period_next;
++    s_time_t last_time_scheduled;
++    s_time_t cputime;
++
++    unsigned long iterations;
++    s_time_t max_cputime;
++    s_time_t min_cputime;
++
++    long cputime_log[100];
++    int position;               /* position in run queue */
++};
++
++/*
++ * Domain
++ */
++struct fp_dom {
++    struct domain *domain;
++    int priority;
++    s_time_t period;
++    s_time_t slice;
++    s_time_t deadline;
++};
++
++/*
++ * Configuration structure.
++ * It consists of a compare function for vcpus and a priority handler.
++ * Each strategy has its own configuration structure instance.
++ */
++struct fp_strategy_conf {
++    int (*compare) (struct fp_vcpu *, struct fp_vcpu *);
++    void (*prio_handler) (struct domain *, int);
++};
++
++/* 
++ * System-wide scheduler data
++ */
++struct fpsched_private {
++    spinlock_t lock;
++    uint8_t strategy;           /* strategy to use */
++    struct fp_strategy_conf *config;
++    s_time_t last_time_temp;
++};
++
++/* DEBUG info */
++static inline void print_vcpu (struct fp_vcpu *fpv)
++{
++    PRINT (3, "c.d.v:%d.%d.%d, state: %d, p: %d, idle: %d, time: %lld \n",
++           fpv->vcpu->processor, fpv->vcpu->domain->domain_id,
++           fpv->vcpu->vcpu_id, fpv->vcpu->runstate.state, fpv->priority,
++           is_idle_vcpu (fpv->vcpu), (long long int)NOW ());
++}
++
++static inline void print_queue (struct list_head *const queue)
++{
++    struct fp_vcpu *snext;
++    struct list_head *iter;
++
++    list_for_each (iter, queue)
++    {
++        snext = list_entry (iter, struct fp_vcpu, queue_elem);
++
++        print_vcpu (snext);
++    }
++}
++
++/* List operations */
++static inline struct fp_vcpu *__runq_elem (struct list_head *elem)
++{
++    return list_entry (elem, struct fp_vcpu, queue_elem);
++}
++
++static inline int __vcpu_on_q (struct fp_vcpu *fpv)
++{
++    return !list_empty (&fpv->queue_elem);
++}
++
++static inline void __runq_remove (struct fp_vcpu *fpv)
++{
++    if (!is_idle_vcpu (fpv->vcpu))
++        list_del_init (&fpv->queue_elem);
++}
++
++static inline void
++__remove_from_queue (struct fp_vcpu *fpv, struct list_head *list)
++{
++    PRINT (1, "in remove_from_queue\n");
++    if (__vcpu_on_q (fpv))
++        list_del_init (&fpv->queue_elem);
++}
++
++/* 
++ * Insert a vcpu to the run queue of the given cpu using the function
++ * compare as sorting criteria.
++ */
++static inline void
++__runq_insert (unsigned int cpu, struct fp_vcpu *fpv,
++               int (*compare) (struct fp_vcpu *, struct fp_vcpu *))
++{
++    struct list_head *const runq = RUNQ (cpu);
++    struct list_head *iter;
++    int i = 0;
++
++//    PRINT (1, "in runq_insert: \n");
++//    if (cpu != fpv->vcpu->processor)
++//        return;
++    if (is_idle_vcpu (fpv->vcpu))
++        return;
++
++    PRINT (1, "CPU: %d, runq_insert, VPCU: %d \n", cpu, fpv->vcpu->vcpu_id);
++
++    list_for_each (iter, runq)
++    {
++        struct fp_vcpu *iter_fpv = __runq_elem (iter);
++
++        if (compare (fpv, iter_fpv))
++            break;
++    }
++    list_add_tail (&fpv->queue_elem, iter);
++
++    list_for_each (iter, runq)
++    {
++        struct fp_vcpu *iter_fpv = __runq_elem (iter);
++
++        iter_fpv->position = i;
++        i++;
++    }
++//    print_queue(runq);
++}
++
++/* Compare functions for the three scheduling strategies. */
++static int __runq_rm_compare (struct fp_vcpu *left, struct fp_vcpu *right)
++{
++    return left->period <= right->period;
++}
++
++static int __runq_dm_compare (struct fp_vcpu *left, struct fp_vcpu *right)
++{
++    return left->deadline <= right->deadline;
++}
++
++static int __runq_fp_compare (struct fp_vcpu *left, struct fp_vcpu *right)
++{
++    return left->priority >= right->priority;
++}
++
++/* 
++ * Calculating the priority of a domain and vcpu is performed as function
++ * of the used strategy. Each strategy has its own priority-handler that
++ * describes how the priority of a given domain and its vcpus will be 
++ * calculated.
++ */
++static void __fp_prio_handler (struct domain *dom, int priority)
++{
++    struct vcpu *v;
++    struct fp_dom *fp_dom = FPSCHED_DOM (dom);
++
++    PRINT (1, "in __fp_prio_handler\n");
++
++    fp_dom->priority = priority;
++
++    for_each_vcpu (dom, v)
++    {
++        struct fp_vcpu *fpv = FPSCHED_VCPU (v);
++
++        fpv->priority = priority;
++    }
++    PRINT (2, "Domain: %d Period: %d Deadline %d Priority: %d\n",
++           dom->domain_id, (int)fp_dom->period, (int)fp_dom->deadline,
++           fp_dom->priority);
++}
++
++static void __rm_prio_handler (struct domain *dom, int priority)
++{
++    int posacc = 0;
++    int count = 0;
++    struct vcpu *v;
++    struct fp_dom *fp_dom = FPSCHED_DOM (dom);
++
++    PRINT (1, "in __rm_prio_handler\n");
++
++    if (dom->domain_id == 0)
++    {
++        priority = VM_DOM0_PRIO;
++    }
++    else if (is_idle_domain (dom))
++    {
++        priority = VM_IDLE_PRIO;
++    }
++    else
++    {
++
++        for_each_vcpu (dom, v)
++        {
++            struct fp_vcpu *fpv = FPSCHED_VCPU (v);
++
++            posacc += fpv->position;
++            count++;
++        }
++        priority = VM_DOM0_PRIO - posacc / count - 1;
++    }
++
++    fp_dom->priority = priority;
++
++    for_each_vcpu (dom, v)
++    {
++        struct fp_vcpu *fpv = FPSCHED_VCPU (v);
++
++        fpv->priority = priority;
++    }
++    PRINT (2, "Domain: %d Period: %d Deadline %d Priority: %d\n",
++           dom->domain_id, (int)fp_dom->period, (int)fp_dom->deadline,
++           fp_dom->priority);
++}
++
++static void __dm_prio_handler (struct domain *dom, int priority)
++{
++    int posacc = 0;
++    int count = 0;
++    struct vcpu *v;
++    struct fp_dom *fp_dom = FPSCHED_DOM (dom);
++
++    PRINT (1, "in __dm_prio_handler\n");
++
++    if (dom->domain_id == 0)
++    {
++        priority = VM_DOM0_PRIO;
++    }
++    else if (is_idle_domain (dom))
++    {
++        priority = VM_IDLE_PRIO;
++    }
++    else
++    {
++
++        for_each_vcpu (dom, v)
++        {
++            struct fp_vcpu *fpv = FPSCHED_VCPU (v);
++
++            posacc += fpv->position;
++            count++;
++        }
++        priority = VM_DOM0_PRIO - posacc / count - 1;
++    }
++
++    fp_dom->priority = priority;
++
++    for_each_vcpu (dom, v)
++    {
++        struct fp_vcpu *fpv = FPSCHED_VCPU (v);
++
++        fpv->priority = priority;
++    }
++    PRINT (2, "Domain: %d Period: %d Deadline %d Priority: %d\n",
++           dom->domain_id, (int)fp_dom->period, (int)fp_dom->deadline,
++           fp_dom->priority);
++}
++
++/* 
++ * Calculate the hypothetical worst-case load of the given cpu.
++ * This is used as backend to provide the user with a warning when
++ * deadlines may be missed due to overloading a cpu.
++ * NOTE: Currently broken.
++ * TODO: Fix in later release.
++ */
++/*static uint32_t fp_get_wcload_on_cpu (int cpu)
++{
++    struct list_head *const runq = RUNQ (cpu);
++    struct list_head *iter;
++    uint32_t load = 0;
++
++    list_for_each (iter, runq)
++    {
++        const struct fp_vcpu *const iter_fpv = __runq_elem (iter);
++
++        load += iter_fpv->slice * 100 / iter_fpv->period;
++    }
++    return load;
++}*/
++
++/* Reinsert a vcpu to a run queue. */
++static void
++fp_reinsertsort_vcpu (struct vcpu *vc,
++                      int (*compare) (struct fp_vcpu *, struct fp_vcpu *))
++{
++    const int cpu = vc->processor;
++    struct fp_vcpu *fpv = vc->sched_priv;
++    struct list_head *const runq = RUNQ (cpu);
++
++    __remove_from_queue (fpv, runq);
++    __runq_insert (cpu, fpv, compare);
++    cpu_raise_softirq (cpu, SCHEDULE_SOFTIRQ);
++}
++
++/* Get the currently used strategy. */
++static int
++fp_sched_get (const struct scheduler *ops,
++              struct xen_sysctl_fp_schedule *schedule)
++{
++    struct fpsched_private *prv = FPSCHED_PRIV (ops);
++
++    schedule->strategy = prv->strategy;
++
++    return 0;
++}
++
++/* 
++ * Set the new strategy and reschedule all domains and
++ * recalculate their priorities accordingly. Also set
++ * the new compare function and priority handler.
++ */
++static int
++fp_sched_set (const struct scheduler *ops,
++              struct xen_sysctl_fp_schedule *schedule)
++{
++    struct fpsched_private *prv = FPSCHED_PRIV (ops);
++
++    /*
++     * Check if given strategy is valid. schedule->strategy is valid if it is either
++     * 0 for rate-monotonic, 1 for deadline-monotonic or 2 for fixed_priority 
++     */
++    if (schedule->strategy < 0 || schedule->strategy > 2)
++        return -EINVAL;
++
++    /*
++     * Addopt the new strategy 
++     */
++    prv->strategy = schedule->strategy;
++    switch (prv->strategy)
++    {
++    case 0:
++    {
++        prv->config->compare = __runq_rm_compare;
++        prv->config->prio_handler = __rm_prio_handler;
++        break;
++    }
++    case 1:
++    {
++        prv->config->compare = __runq_dm_compare;
++        prv->config->prio_handler = __dm_prio_handler;
++        break;
++    }
++    case 2:
++    {
++        prv->config->compare = __runq_fp_compare;
++        prv->config->prio_handler = __fp_prio_handler;
++    }
++    }
++    PRINT (2, "Strategy is now %d\n", prv->strategy);
++
++    return 0;
++}
++
++/* Recalculate priorities after updating scheduler or domain parameters. */ 
++static void
++fp_sched_set_vm_prio (const struct scheduler *ops, struct domain *d, int prio)
++{
++    struct fp_dom *fpd = FPSCHED_DOM (d);
++    int strategy = FPSCHED_PRIV (ops)->strategy;
++    struct vcpu *v;
++
++
++    PRINT (1, "in fp_sched_set_vm_prio\n");
++    PRINT (2, "in fp_sched_set_vm_prio, domain %d, strategy %d\n", d->domain_id, strategy);
++
++    if (d->domain_id == 0)
++    {
++        fpd->priority = VM_DOM0_PRIO;
++        return;
++    }
++    else if (is_idle_domain (d))
++    {
++        fpd->priority = VM_IDLE_PRIO;
++        return;
++    }
++    PRINT (2, "in fp_sched_set_vm_prio, fpd->priority %d\n", fpd->priority);
++
++    for_each_vcpu (d, v)
++    {
++//        struct fp_vcpu *fpv = FPSCHED_VCPU (v);
++
++        if (d->domain_id == 0 || is_idle_domain (d))
++        {
++//            fpv->priority = fpd->priority;
++                continue;
++        }
++/*        if (strategy != FP)
++        {
++            FPSCHED_PRIV (ops)->config->prio_handler (d, prio);
++            fp_reinsertsort_vcpu (v, FPSCHED_PRIV (ops)->config->compare);
++        }*/
++        FPSCHED_PRIV (ops)->config->prio_handler (d, prio);
++        fp_reinsertsort_vcpu (v, FPSCHED_PRIV (ops)->config->compare);
++    }
++}
++
++static void fp_insert_vcpu (const struct scheduler *ops, struct vcpu *vc)
++{
++    struct fp_vcpu *fpv = vc->sched_priv;
++    spinlock_t *lock;
++
++    BUG_ON( is_idle_vcpu(vc) );
++
++    PRINT (1, "in fp_insert_vcpu\n");
++    PRINT (2, "in fp_insert_vcpu %d\n", vc->vcpu_id);
++
++    lock = vcpu_schedule_lock_irq(vc);
++
++    if (!__vcpu_on_q (fpv) && vcpu_runnable (vc) && !vc->is_running)
++    {
++        __runq_insert (vc->processor, fpv, FPSCHED_PRIV (ops)->config->compare);
++        if (FPSCHED_PRIV (ops)->strategy != FP)
++            FPSCHED_PRIV (ops)->config->prio_handler (vc->domain, 1);
++    }
++    vcpu_schedule_unlock_irq(lock, vc);
++}
++
++static void *fp_alloc_domdata (const struct scheduler *ops, struct domain *d)
++{
++    struct fp_dom *fp_dom;
++
++    PRINT (1, "in alloc domdata\n");
++    PRINT (2, "in alloc domdata, domainID: %d\n", d->domain_id);
++
++    fp_dom = xmalloc (struct fp_dom);
++
++    if (fp_dom == NULL)
++        return NULL;
++    memset (fp_dom, 0, sizeof (*fp_dom));
++
++    return (void *)fp_dom;
++}
++
++static int fp_init_domain (const struct scheduler *ops, struct domain *d)
++{
++    struct fp_dom *fp_dom;
++
++    PRINT (1, "in init_domain\n");
++    PRINT (2, "in init_domain %d\n", d->domain_id);
++    if (is_idle_domain (d))
++        return 0;
++
++    fp_dom = fp_alloc_domdata (ops, d);
++    if (d == NULL)
++        return -ENOMEM;
++
++    d->sched_priv = fp_dom;
++
++    fp_dom->domain = d;
++
++    if (d->domain_id == 0)
++    {
++        fp_dom->priority = VM_DOM0_PRIO;
++        fp_dom->slice = VM_DOM0_SLICE;
++        fp_dom->period = VM_DOM0_PERIOD;
++        fp_dom->deadline = VM_DOM0_PERIOD;      /* assume rate-monotonic scheduling for default */
++    }
++    else
++    {
++        fp_dom->period = VM_STANDARD_PERIOD;
++        fp_dom->deadline = VM_STANDARD_PERIOD;
++        fp_dom->slice = is_idle_domain (d) ? MICROSECS (0) : VM_STANDARD_SLICE;
++
++        if (is_idle_domain (d))
++        {
++            fp_dom->priority = VM_IDLE_PRIO;
++        }
++    }
++    return 0;
++}
++
++static int fp_init (struct scheduler *ops)
++{
++    struct fpsched_private *prv;
++    struct fp_strategy_conf *conf;
++
++    printk("Initializing FP scheduler\n"
++           "WARNING: This is experimental software in development.\n"
++           "Use at your own risk.\n");
++
++    prv = xmalloc (struct fpsched_private);
++
++    if (prv == NULL)
++        return -ENOMEM;
++    conf = xmalloc (struct fp_strategy_conf);
++    if (conf == NULL)
++        return -ENOMEM;
++
++    memset (prv, 0, sizeof (*prv));
++    memset (prv, 0, sizeof (*conf));
++    ops->sched_data = prv;
++    spin_lock_init(&prv->lock);
++
++    prv->strategy = 0;
++    prv->config = conf;
++    prv->config->compare = __runq_rm_compare;
++    prv->config->prio_handler = __rm_prio_handler;
++    prv->last_time_temp =0;
++
++    return 0;
++}
++
++static void fp_deinit (struct scheduler *ops)
++{
++    PRINT (1, "in fp_deinit\n");
++    xfree (FPSCHED_PRIV (ops)->config);
++    xfree (FPSCHED_PRIV (ops));
++    ops->sched_data = NULL;
++}
++
++static void fp_free_domdata (const struct scheduler *ops, void *data)
++{
++    PRINT (1, "in fp_free_domdata\n");
++    xfree (data);
++}
++
++static void fp_destroy_domain (const struct scheduler *ops, struct domain *d)
++{
++    PRINT (1, "in fp_destroy_domain\n");
++    fp_free_domdata (ops, d->sched_priv);
++}
++
++static void fp_free_vdata (const struct scheduler *ops, void *priv)
++{
++    struct fp_vcpu *fpv = priv;
++
++    PRINT (1, "in fp_free_vdata\n");
++    xfree (fpv);
++}
++
++static void *fp_alloc_vdata (const struct scheduler *ops, struct vcpu *vc,
++                             void *dd)
++{
++    struct fp_vcpu *fpv;
++    struct fp_dom *fp_dom = FPSCHED_DOM (vc->domain);
++
++    PRINT (1, "in alloc_vdata\n");
++    PRINT (2, "in alloc_vdata, vc->domainID: %d\n", vc->domain->domain_id);
++
++    fpv = xmalloc (struct fp_vcpu);
++
++    if (fpv == NULL)
++        return NULL;
++    memset (fpv, 0, sizeof (*fpv));
++
++    fpv->vcpu = vc;
++
++    if (fp_dom != NULL)
++    {
++        fpv->slice = fp_dom->slice;
++        fpv->period = fp_dom->period;
++        fpv->priority = fp_dom->priority;
++        fpv->deadline = fp_dom->deadline;
++    }
++    else
++    {
++        if (vc->domain->domain_id == 0)
++        {
++            fpv->priority = VM_DOM0_PRIO;
++            fpv->slice = VM_DOM0_SLICE;
++            fpv->period = VM_DOM0_PERIOD;
++            fpv->deadline = fpv->period;
++        }
++        else
++        {
++            fpv->period = VM_STANDARD_PERIOD;
++            fpv->deadline = fpv->period;
++            if (is_idle_domain (vc->domain))
++            {
++                fpv->priority = VM_IDLE_PRIO;
++            }
++            fpv->slice =
++                is_idle_domain (vc->domain) ? MICROSECS (0) : VM_STANDARD_SLICE;
++        }
++    }
++
++    fpv->cputime = 0;
++    fpv->last_time_scheduled = 0;
++    fpv->period_next = NOW () + fpv->period;
++    fpv->iterations = 0;
++
++    INIT_LIST_HEAD (&fpv->queue_elem);
++    return fpv;
++}
++
++static int fp_pick_cpu (const struct scheduler *ops, struct vcpu *v)
++{
++    cpumask_t online_affinity;
++    cpumask_t *online;
++    int cpu;
++
++    PRINT (1, "in rt_pick_cpu, v->cpu: %d, pick up cpu: ", v->processor);
++
++    online = cpupool_domain_cpumask(v->domain);
++    cpumask_and(&online_affinity, online, v->cpu_hard_affinity);
++
++    cpu = cpumask_test_cpu(v->processor, &online_affinity)
++            ? v->processor
++            : cpumask_cycle(v->processor, &online_affinity);
++    PRINT (1, "%d\n", cpu);
++    return cpu;
++}
++
++static int
++fp_adjust_global (const struct scheduler *ops,
++                  struct xen_sysctl_scheduler_op *sc)
++{
++    xen_sysctl_fp_schedule_t local_sched;
++    int rc = -EINVAL;
++    struct domain *d;
++    struct cpupool *c = xzalloc(struct cpupool);
++    struct cpupool **q;
++
++    PRINT (1, "in fp_adjust_global\n");
++
++    switch (sc->cmd)
++    {
++    case XEN_SYSCTL_SCHEDOP_putinfo:
++        copy_from_guest (&local_sched, sc->u.sched_fp.schedule, 1);
++        rc = fp_sched_set (ops, &local_sched);
++        break;
++    case XEN_SYSCTL_SCHEDOP_getinfo:
++        rc = fp_sched_get (ops, &local_sched);
++        copy_to_guest (sc->u.sched_fp.schedule, &local_sched, 1);
++        break;
++    }
++
++    for_each_cpupool(q)
++    {
++        if((*q)->sched->sched_id == XEN_SCHEDULER_FP)
++        {
++            c = *q;
++
++            for_each_domain_in_cpupool(d, c)
++            {
++                struct fp_dom *const fpd = FPSCHED_DOM (d);
++                fp_sched_set_vm_prio (ops, d, fpd->priority);
++            }
++        }
++    }
++    return rc;
++}
++
++static void fp_free_pdata (const struct scheduler *ops, void *spc, int cpu)
++{
++    PRINT (1, "in fp_free_pdata\n");
++    if (spc == NULL)
++        return;
++    xfree (spc);
++}
++
++static void *fp_alloc_pdata (const struct scheduler *ops, int cpu)
++{
++    struct fp_cpu *fpc;
++
++    PRINT (1, "in alloc_pdata\n");
++    PRINT (2, "CPU %d in alloc_pdata\n", cpu);
++
++    fpc = xmalloc (struct fp_cpu);
++
++    memset (fpc, 0, sizeof (*fpc));
++
++    INIT_LIST_HEAD (&fpc->runq);
++    return fpc;
++}
++
++static void fp_sleep (const struct scheduler *ops, struct vcpu *vc)
++{
++    struct fp_vcpu *const fpv = FPSCHED_VCPU (vc);
++    const unsigned int cpu = vc->processor;
++
++    PRINT (1, "in fp_sleep\n");
++    PRINT (2, "CPU %d in fp_sleep\n", cpu);
++
++    if (is_idle_vcpu (vc))
++        return;
++
++    if (per_cpu (schedule_data, cpu).curr == vc)
++    {
++        cpu_raise_softirq (cpu, SCHEDULE_SOFTIRQ);
++    }
++    else if (__vcpu_on_q (fpv))
++        __runq_remove (fpv);
++}
++
++static void fp_vcpu_wake (const struct scheduler *ops, struct vcpu *vc)
++{
++    struct fp_vcpu *const fpv = FPSCHED_VCPU (vc);
++    const unsigned int cpu = vc->processor;
++    struct fpsched_private *prv = FPSCHED_PRIV (ops);
++    s_time_t now = NOW();
++
++    PRINT (3, "in fp_vcpu_wake, CPU: %d, \n", cpu);
++
++    if (unlikely (per_cpu (schedule_data, vc->processor).curr == vc))
++        return;
++    if (unlikely (is_idle_vcpu (vc)))
++        return;
++    if (unlikely (__vcpu_on_q (fpv)))
++    {
++        if( now < prv->last_time_temp + DELTA && vc->processor == 7) 
++        {
++            PRINT(1, "in fp_vcpu_wake, CPU: %d, \n", cpu);
++            prv->last_time_temp = now;
++        }
++        return;
++    }
++
++    __runq_insert (cpu, fpv, FPSCHED_PRIV (ops)->config->compare);
++    FPSCHED_PRIV (ops)->config->prio_handler (vc->domain, fpv->priority);
++    cpu_raise_softirq (cpu, SCHEDULE_SOFTIRQ);
++}
++
++static void fp_vcpu_remove (const struct scheduler *ops, struct vcpu *vc)
++{
++    struct fp_vcpu *const fpv = FPSCHED_VCPU (vc);
++    const unsigned int cpu = vc->processor;
++    struct list_head *const runq = RUNQ (cpu);
++
++    PRINT (1, "in fp_vcpu_remove\n");
++    PRINT (2, "CPU: %d in fp_vcpu_remove\n", cpu);
++    __remove_from_queue (fpv, runq);
++}
++
++static int
++fp_adjust (const struct scheduler *ops, struct domain *d,
++           struct xen_domctl_scheduler_op *op)
++{
++    struct fp_dom *const fp_dom = FPSCHED_DOM (d);
++    struct vcpu *v;
++    struct domain *dom;
++    struct cpupool *c = xzalloc(struct cpupool);
++    struct cpupool **q;
++
++
++    PRINT (1, "in fp_adjust\n");
++    PRINT (2, "in fp_adjust, cpupool id: %d, cpupool->n_dom %d\n", d->cpupool->cpupool_id, d->cpupool->n_dom);
++    if (op->cmd == XEN_DOMCTL_SCHEDOP_getinfo)
++    {
++        op->u.fp.priority = fp_dom->priority;
++        op->u.fp.slice = fp_dom->slice;
++        op->u.fp.period = fp_dom->period;
++        op->u.fp.deadline = fp_dom->deadline;
++    }
++    else
++    {
++        if (op->u.fp.period > 0)
++        {
++            fp_dom->period = op->u.fp.period * 1000;
++
++            if (FPSCHED_PRIV (ops)->strategy == RM)
++                fp_dom->deadline = fp_dom->period;
++            for_each_vcpu (d, v)
++            {
++                struct fp_vcpu *fpv = FPSCHED_VCPU (v);
++
++                fpv->period = op->u.fp.period * 1000;
++                if (FPSCHED_PRIV (ops)->strategy == RM)
++                    fpv->deadline = fpv->period;
++            }
++        }
++        if (op->u.fp.slice > 0)
++        {
++            fp_dom->slice = op->u.fp.slice * 1000;
++            for_each_vcpu (d, v)
++            {
++                FPSCHED_VCPU (v)->slice = op->u.fp.slice * 1000;
++            }
++        }
++        if (op->u.fp.deadline > 0)
++        {
++            fp_dom->deadline = op->u.fp.deadline * 1000;
++            for_each_vcpu (d, v)
++            {
++                FPSCHED_VCPU (v)->deadline = op->u.fp.deadline * 1000;
++            }
++        }
++        /*
++         * Schedule must be updated always now. Otherwise changing period or deadline does not cause a change in priority when using
++         * rate-monotonic or deadline-monotonic scheduling. 
++         */
++
++         if (d->cpupool->sched->sched_id == XEN_SCHEDULER_FP) 
++            fp_sched_set_vm_prio (ops, d,
++                                  op->u.fp.priority >
++                                  0 ? op->u.fp.priority : fp_dom->priority);
++
++        for_each_cpupool(q)
++        {
++            if((*q)->sched->sched_id == XEN_SCHEDULER_FP)
++            {
++                c = *q;
++
++                for_each_domain_in_cpupool(dom, c)
++                {
++                     struct fp_dom *const fpd = FPSCHED_DOM (dom);
++                     if(d->domain_id == dom->domain_id) continue;
++                     fp_sched_set_vm_prio (ops, dom, fpd->priority);
++                }
++            }
++        }
++
++    }
++    return 0;
++}
++
++
++static void update_queue (s_time_t now, struct list_head *runq)
++{
++    struct list_head *iter;
++
++    if (!list_empty (runq))
++    {
++        list_for_each (iter, runq)
++        {
++            struct fp_vcpu *fpv = __runq_elem (iter);
++
++            if (now > fpv->period_next)
++            {
++                fpv->iterations = fpv->iterations + 1;
++                /*
++                 * printk("core.dom.vcpu:%d.%d.%d, cputime: %ld, max_ct: %ld, last_schedule: %ld, period_next: %ld, time: %ld, period: %ld, slice: %ld\n",
++                 * fpv->vcpu->processor,fpv->vcpu->domain->domain_id, fpv->vcpu->vcpu_id,
++                 * fpv->cputime, fpv->max_cputime, fpv->last_time_scheduled, fpv->period_next, now, fpv->period, fpv->slice);
++                 */
++                fpv->cputime = 0;
++                fpv->period_next = now + fpv->period;
++            }
++        }
++    }
++
++}
++
++
++static struct task_slice
++fp_do_schedule (const struct scheduler *ops, s_time_t now,
++                bool_t tasklet_work_scheduled)
++{
++    const int cpu = smp_processor_id ();
++    struct list_head *const runq = RUNQ (cpu);
++    struct fp_vcpu *cur = FPSCHED_VCPU (current);
++    struct fp_vcpu *snext = NULL;
++    struct task_slice ret = {.migrated = 0};
++    struct list_head *iter;
++
++    if (!is_idle_vcpu (current))
++    {
++        cur->cputime += now - cur->last_time_scheduled;
++    }
++    update_queue (now, runq);
++
++    /* Get next runnable vcpu */
++    if (!list_empty (runq))
++    {
++        list_for_each (iter, runq)
++        {
++            const struct fp_vcpu *const iter_fpv = __runq_elem (iter);
++
++            if (vcpu_runnable (iter_fpv->vcpu) 
++                && (iter_fpv->cputime < iter_fpv->slice))
++
++            {
++                snext = __runq_elem (iter);
++                snext->last_time_scheduled = now;
++                break;
++            }
++        }
++    }
++    if (snext == NULL)
++        snext = FPSCHED_VCPU (idle_vcpu[cpu]);
++
++    if (tasklet_work_scheduled)
++    {
++        PRINT (1, "Tasklet work:\n");
++        snext = FPSCHED_VCPU (idle_vcpu[cpu]);
++    }
++
++//    ret.time = MICROSECS (50);   //MILLISECS(1);
++//    ret.time = MICROSECS (snext->slice - snext->cputime); //MILLISECS(1); //MICROSECS (10);   //MILLISECS(1);
++    ret.time = MICROSECS (100);   //MILLISECS(1);
++    ret.task = snext->vcpu;
++    return ret;
++}
++
++
++/* Change the scheduler of cpu to us (FP). */
++static void
++fp_switch_sched(struct scheduler *new_ops, unsigned int cpu,
++                void *pdata, void *vdata)
++{
++    struct schedule_data *sd = &per_cpu(schedule_data, cpu);
++    struct fp_vcpu *vc = vdata;
++
++    PRINT (1, "in fp_switch_sched\n");
++    PRINT (2, "in fp_switch_sched: cpu %d\n", cpu);
++
++    ASSERT(vc && is_idle_vcpu(vc->vcpu));
++
++    ASSERT(sd->schedule_lock == &sd->_lock && !spin_is_locked(&sd->_lock));
++
++    idle_vcpu[cpu]->sched_priv = vdata;
++
++    per_cpu(scheduler, cpu) = new_ops;
++    per_cpu(schedule_data, cpu).sched_priv = pdata ;//NULL; /* no pdata */
++
++    smp_mb();
++    sd->schedule_lock = &sd->_lock;
++
++
++}
++
++//struct fpsched_private _fpsched_private;
++
++static const struct scheduler sched_fp_def = {
++    .name = "Fixed Priority Scheduler",
++    .opt_name = "fp",
++    .sched_id = XEN_SCHEDULER_FP,
++    .sched_data = NULL, //&_fpsched_private,
++
++    .init_domain = fp_init_domain,
++    .destroy_domain = fp_destroy_domain,
++
++    .insert_vcpu = fp_insert_vcpu,
++    .remove_vcpu = fp_vcpu_remove,
++
++    .sleep = fp_sleep,
++    .yield = NULL,
++    .wake = fp_vcpu_wake,
++    
++    .adjust = fp_adjust,
++    .adjust_global = fp_adjust_global,
++    
++    .pick_cpu = fp_pick_cpu,
++    .do_schedule = fp_do_schedule,
++    
++    .dump_cpu_state = NULL,
++    .dump_settings = NULL,
++    .init = fp_init,
++    .deinit = fp_deinit,
++    .alloc_vdata = fp_alloc_vdata,
++    .free_vdata = fp_free_vdata,
++
++    .alloc_pdata = fp_alloc_pdata,
++    .free_pdata = fp_free_pdata,
++
++//    .init_pdata     = fp_init_pdata,
++    .switch_sched   = fp_switch_sched,
++//    .deinit_pdata   = fp_deinit_pdata,
++
++
++    .alloc_domdata = fp_alloc_domdata,
++    .free_domdata = fp_free_domdata,
++
++    .tick_suspend = NULL,
++    .tick_resume = NULL,
++};
++
++REGISTER_SCHEDULER(sched_fp_def);
+diff -urBN xen-47orig/xen/common/timer.c xen-4.7.0/xen/common/timer.c
+--- xen-47orig/xen/common/timer.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/xen/common/timer.c	2017-02-10 15:54:31.251675000 +0100
+@@ -26,7 +26,7 @@
+ #include <asm/atomic.h>
+ 
+ /* We program the time hardware this far behind the closest deadline. */
+-static unsigned int timer_slop __read_mostly = 50000; /* 50 us */
++static unsigned int timer_slop __read_mostly = 10000; /* 10 us */
+ integer_param("timer_slop", timer_slop);
+ 
+ struct timers {
+diff -urBN xen-47orig/xen/include/public/domctl.h xen-4.7.0/xen/include/public/domctl.h
+--- xen-47orig/xen/include/public/domctl.h	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/xen/include/public/domctl.h	2017-02-10 15:54:31.307675000 +0100
+@@ -349,6 +349,7 @@
+ #define XEN_SCHEDULER_CREDIT2  6
+ #define XEN_SCHEDULER_ARINC653 7
+ #define XEN_SCHEDULER_RTDS     8
++#define XEN_SCHEDULER_FP       9
+ 
+ typedef struct xen_domctl_sched_credit {
+     uint16_t weight;
+@@ -364,11 +365,19 @@
+     uint32_t budget;
+ } xen_domctl_sched_rtds_t;
+ 
++typedef struct xen_domctl_sched_fp {
++    uint64_aligned_t slice;
++    uint64_aligned_t period;
++    uint64_aligned_t deadline;
++    int32_t priority;
++} xen_domctl_sched_fp_t;
++
+ typedef struct xen_domctl_schedparam_vcpu {
+     union {
+         xen_domctl_sched_credit_t credit;
+         xen_domctl_sched_credit2_t credit2;
+         xen_domctl_sched_rtds_t rtds;
++        xen_domctl_sched_fp_t fp;
+     } u;
+     uint32_t vcpuid;
+ } xen_domctl_schedparam_vcpu_t;
+@@ -398,6 +407,7 @@
+         xen_domctl_sched_credit_t credit;
+         xen_domctl_sched_credit2_t credit2;
+         xen_domctl_sched_rtds_t rtds;
++        xen_domctl_sched_fp_t fp;
+         struct {
+             XEN_GUEST_HANDLE_64(xen_domctl_schedparam_vcpu_t) vcpus;
+             /*
+diff -urBN xen-47orig/xen/include/public/sysctl.h xen-4.7.0/xen/include/public/sysctl.h
+--- xen-47orig/xen/include/public/sysctl.h	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/xen/include/public/sysctl.h	2017-02-10 15:54:31.311675000 +0100
+@@ -623,6 +623,15 @@
+ typedef struct xen_sysctl_arinc653_schedule xen_sysctl_arinc653_schedule_t;
+ DEFINE_XEN_GUEST_HANDLE(xen_sysctl_arinc653_schedule_t);
+ 
++
++struct xen_sysctl_fp_schedule {
++    uint8_t strategy;
++    uint32_t load;
++};
++
++typedef struct xen_sysctl_fp_schedule xen_sysctl_fp_schedule_t;
++DEFINE_XEN_GUEST_HANDLE(xen_sysctl_fp_schedule_t);
++
+ struct xen_sysctl_credit_schedule {
+     /* Length of timeslice in milliseconds */
+ #define XEN_SYSCTL_CSCHED_TSLICE_MAX 1000
+@@ -643,12 +652,16 @@
+ struct xen_sysctl_scheduler_op {
+     uint32_t cpupool_id; /* Cpupool whose scheduler is to be targetted. */
+     uint32_t sched_id;   /* XEN_SCHEDULER_* (domctl.h) */
++    uint32_t cpu;        /* CPU whose scheduler is to be targetted. */
+     uint32_t cmd;        /* XEN_SYSCTL_SCHEDOP_* */
+     union {
+         struct xen_sysctl_sched_arinc653 {
+             XEN_GUEST_HANDLE_64(xen_sysctl_arinc653_schedule_t) schedule;
+         } sched_arinc653;
+         struct xen_sysctl_credit_schedule sched_credit;
++        struct xen_sysctl_sched_fp {
++            XEN_GUEST_HANDLE_64(xen_sysctl_fp_schedule_t) schedule;
++        } sched_fp;
+     } u;
+ };
+ typedef struct xen_sysctl_scheduler_op xen_sysctl_scheduler_op_t;
+diff -urBN xen-47orig/xen/include/xen/sched-if.h xen-4.7.0/xen/include/xen/sched-if.h
+--- xen-47orig/xen/include/xen/sched-if.h	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/xen/include/xen/sched-if.h	2017-02-10 15:54:31.323675000 +0100
+@@ -12,6 +12,7 @@
+ 
+ /* A global pointer to the initial cpupool (POOL0). */
+ extern struct cpupool *cpupool0;
++extern struct cpupool *cpupool_list;
+ 
+ /* cpus currently in no cpupool */
+ extern cpumask_t cpupool_free_cpus;
+diff -urBN xen-47orig/xen/include/xen/sched.h xen-4.7.0/xen/include/xen/sched.h
+--- xen-47orig/xen/include/xen/sched.h	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/xen/include/xen/sched.h	2017-02-10 15:54:31.323675000 +0100
+@@ -739,6 +739,9 @@
+        (_v) != NULL;                            \
+        (_v) = (_v)->next_in_list )
+ 
++#define for_each_cpupool(ptr)    \
++    for ((ptr) = &cpupool_list; *(ptr) != NULL; (ptr) = &((*(ptr))->next))
++
+ /*
+  * Per-VCPU pause flags.
+  */
+diff -urBN xen-47orig/tools/libxc/Makefile xen-4.7.0/tools/libxc/Makefile
+--- xen-47orig/tools/libxc/Makefile	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxc/Makefile	2017-02-10 15:54:30.183675000 +0100
+@@ -26,6 +26,7 @@
+ CTRL_SRCS-y       += xc_csched2.c
+ CTRL_SRCS-y       += xc_arinc653.c
+ CTRL_SRCS-y       += xc_rt.c
++CTRL_SRCS-y		  += xc_fp.c
+ CTRL_SRCS-y       += xc_tbuf.c
+ CTRL_SRCS-y       += xc_pm.c
+ CTRL_SRCS-y       += xc_cpu_hotplug.c
+diff -urBN xen-47orig/tools/libxc/include/xenctrl.h xen-4.7.0/tools/libxc/include/xenctrl.h
+--- xen-47orig/tools/libxc/include/xenctrl.h	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxc/include/xenctrl.h	2017-02-10 15:54:30.183675000 +0100
+@@ -950,6 +953,23 @@
+     uint32_t cpupool_id,
+     struct xen_sysctl_arinc653_schedule *schedule);
+ 
++
++int xc_sched_fp_domain_set(xc_interface *xch,
++                               uint32_t domid,
++                               struct xen_domctl_sched_fp *sdom);
++
++int xc_sched_fp_domain_get(xc_interface *xch,
++                               uint32_t domid,
++                               struct xen_domctl_sched_fp *sdom);
++
++int xc_sched_fp_schedule_set(xc_interface *xch, uint32_t poolid,
++				struct xen_sysctl_fp_schedule *schedule);
++
++int xc_sched_fp_schedule_get(xc_interface *xch, uint32_t poolid,
++				struct xen_sysctl_fp_schedule *schedule);
++int xc_sched_fp_get_wcload_on_cpu(xc_interface *xch,
++                                uint32_t cpu, struct xen_sysctl_fp_schedule *schedule);
++
+ /**
+  * This function sends a trigger to a domain.
+diff -urBN xen-47orig/tools/libxc/xc_fp.c xen-4.7.0/tools/libxc/xc_fp.c
+--- xen-47orig/tools/libxc/xc_fp.c	1970-01-01 01:00:00.000000000 +0100
++++ xen-4.7.0/tools/libxc/xc_fp.c	2017-02-10 15:54:30.191675000 +0100
+@@ -0,0 +1,147 @@
++/****************************************************************************
++ * (C) 2014 - Boguslaw Jablkowski, Michael Müller - Technische Universität Dortmund
++ ****************************************************************************
++ *
++ *        File: xc_fp.c
++ *
++ * Description: XC Interface to the fixed priority scheduler
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation;
++ * version 2.1 of the License.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
++ */
++
++#include "xc_private.h"
++
++int
++xc_sched_fp_domain_set(
++    xc_interface *xch,
++    uint32_t domid,
++    struct xen_domctl_sched_fp *sdom)
++{
++    DECLARE_DOMCTL;
++
++    domctl.cmd = XEN_DOMCTL_scheduler_op;
++    domctl.domain = (domid_t) domid;
++    domctl.u.scheduler_op.sched_id = XEN_SCHEDULER_FP;
++    domctl.u.scheduler_op.cmd = XEN_DOMCTL_SCHEDOP_putinfo;
++    domctl.u.scheduler_op.u.fp = *sdom;
++
++    return do_domctl(xch, &domctl);
++}
++
++int
++xc_sched_fp_domain_get(
++    xc_interface *xch,
++    uint32_t domid,
++    struct xen_domctl_sched_fp *sdom)
++{
++    DECLARE_DOMCTL;
++    int err;
++
++    domctl.cmd = XEN_DOMCTL_scheduler_op;
++    domctl.domain = (domid_t) domid;
++    domctl.u.scheduler_op.sched_id = XEN_SCHEDULER_FP;
++    domctl.u.scheduler_op.cmd = XEN_DOMCTL_SCHEDOP_getinfo;
++
++    err = do_domctl(xch, &domctl);
++    if ( err == 0 )
++        *sdom = domctl.u.scheduler_op.u.fp;
++
++    return err;
++}
++
++int
++xc_sched_fp_schedule_set(
++    xc_interface *xch, uint32_t poolid,
++    struct xen_sysctl_fp_schedule *schedule)
++{
++    int rc;
++    DECLARE_SYSCTL;
++    DECLARE_HYPERCALL_BOUNCE(
++        schedule,
++        sizeof(*schedule),
++        XC_HYPERCALL_BUFFER_BOUNCE_IN);
++    
++    if ( xc_hypercall_bounce_pre(xch, schedule) )
++        return -1;
++
++    sysctl.cmd = XEN_SYSCTL_scheduler_op;
++    sysctl.u.scheduler_op.cpupool_id = poolid;
++    sysctl.u.scheduler_op.sched_id = XEN_SCHEDULER_FP;
++    sysctl.u.scheduler_op.cmd = XEN_SYSCTL_SCHEDOP_putinfo;
++    set_xen_guest_handle(sysctl.u.scheduler_op.u.sched_fp.schedule, schedule);
++    
++    rc = do_sysctl(xch, &sysctl);
++    xc_hypercall_bounce_post(xch, schedule);
++    
++    return rc;
++}
++
++int
++xc_sched_fp_schedule_get(
++    xc_interface *xch,
++    uint32_t poolid,
++    struct xen_sysctl_fp_schedule *schedule)
++{
++    int rc;
++    DECLARE_SYSCTL;
++    DECLARE_HYPERCALL_BOUNCE(
++        schedule,
++        sizeof(*schedule),
++        XC_HYPERCALL_BUFFER_BOUNCE_OUT);
++
++    if ( xc_hypercall_bounce_pre(xch, schedule) )
++        return -1;
++
++    sysctl.cmd = XEN_SYSCTL_scheduler_op;
++    sysctl.u.scheduler_op.cpupool_id = poolid;
++    sysctl.u.scheduler_op.sched_id = XEN_SCHEDULER_FP;
++    sysctl.u.scheduler_op.cmd = XEN_SYSCTL_SCHEDOP_getinfo;
++    set_xen_guest_handle(sysctl.u.scheduler_op.u.sched_fp.schedule,
++            schedule);
++
++    rc = do_sysctl(xch, &sysctl);
++
++    xc_hypercall_bounce_post(xch, schedule);
++    
++    return rc;
++}
++
++int xc_sched_fp_get_wcload_on_cpu(
++    xc_interface *xch, uint32_t cpu, struct xen_sysctl_fp_schedule *schedule)
++{
++    int rc;
++    DECLARE_SYSCTL;
++    DECLARE_HYPERCALL_BOUNCE(
++        schedule,
++        sizeof(*schedule),
++        XC_HYPERCALL_BUFFER_BOUNCE_OUT);
++
++    if ( xc_hypercall_bounce_pre(xch, schedule) ) {
++        return -1;
++    }
++
++    sysctl.cmd = XEN_SYSCTL_scheduler_op;
++    sysctl.u.scheduler_op.cpupool_id = 0;
++    sysctl.u.scheduler_op.cpu = cpu;
++    sysctl.u.scheduler_op.sched_id = XEN_SCHEDULER_FP;
++    sysctl.u.scheduler_op.cmd = XEN_SYSCTL_SCHEDOP_getinfo;
++    set_xen_guest_handle(sysctl.u.scheduler_op.u.sched_fp.schedule,
++        schedule);
++
++    rc = do_sysctl(xch, &sysctl);
++    xc_hypercall_bounce_post(xch, schedule);
++
++    return rc;
++}
+diff -urBN xen-47orig/tools/libxc/xc_private.c xen-4.7.0/tools/libxc/xc_private.c
+--- xen-47orig/tools/libxc/xc_private.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxc/xc_private.c	2017-02-10 15:54:30.191675000 +0100
+@@ -633,9 +633,11 @@
+ 
+     while ( offset < size )
+     {
++
+         len = read(fd, (char *)data + offset, size - offset);
+-        if ( (len == -1) && (errno == EINTR) )
++        if ( (len == -1) && (errno == EINTR) ) {
+             continue;
++        }
+         if ( len == 0 )
+             errno = 0;
+         if ( len <= 0 )
+diff -urBN xen-47orig/tools/libxl/libxl.c xen-4.7.0/tools/libxl/libxl.c
+--- xen-47orig/tools/libxl/libxl.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxl.c	2017-02-10 15:54:30.199675000 +0100
+@@ -6288,6 +6334,139 @@
+     return 0;
+ }
+ 
++/* Get domain-parameters for the FP-Scheduler. */
++static int sched_fp_domain_get(libxl__gc *gc, uint32_t domid, libxl_domain_sched_params *scinfo)
++{
++    struct xen_domctl_sched_fp sdom;
++    int rc;
++    
++    rc = xc_sched_fp_domain_get(CTX->xch, domid, &sdom);
++    if (rc != 0) {
++        LIBXL__LOG_ERRNO(CTX, LIBXL__LOG_ERROR, "getting domain sched fp");
++        return ERROR_FAIL;
++    }
++    
++    libxl_domain_sched_params_init(scinfo);
++
++    scinfo->sched = LIBXL_SCHEDULER_FP;
++    scinfo->priority = sdom.priority;
++    scinfo->period = sdom.period / 1000;
++    scinfo->slice = sdom.slice / 1000;
++    scinfo->deadline = sdom.deadline / 1000;
++
++    return 0;
++}
++
++/* Set domain-parameters for the FP-Scheduler. */
++static int sched_fp_domain_set(libxl__gc *gc, uint32_t domid, const libxl_domain_sched_params *scinfo)
++{
++    struct xen_domctl_sched_fp sdom;
++    xc_domaininfo_t domaininfo;
++    int rc;
++
++    rc = xc_domain_getinfolist(CTX->xch, domid, 1, &domaininfo);
++    if (rc <  0) {
++        LIBXL__LOG_ERRNO(CTX, LIBXL__LOG_ERROR, "getting domain info list");
++        return ERROR_FAIL;
++    }
++    if (rc != 1 || domaininfo.domain != domid)
++        return ERROR_INVAL;
++
++    if (scinfo->period < 0) {
++        LIBXL__LOG_ERRNOVAL(CTX, LIBXL__LOG_ERROR, rc, 
++           "Period out of range. Valid values are positive integers.");
++        return ERROR_INVAL;
++    }
++
++    if (scinfo->deadline < 0) {
++        LIBXL__LOG_ERRNOVAL(CTX, LIBXL__LOG_ERROR, rc, 
++            "Deadline out of range. Valid values are positive integers.");
++        return ERROR_INVAL;
++   }
++    
++    if (scinfo->slice < 0) {
++        LIBXL__LOG_ERRNOVAL(CTX, LIBXL__LOG_ERROR, rc, 
++            "Slice out of range. Valid values are positive integers.");
++        return ERROR_INVAL;
++    }
++
++    if (scinfo->priority < 0 || scinfo->priority >= LIBXL_DOMAIN_SCHED_PARAM_PRIORITY_MAX) {
++        LIBXL__LOG_ERRNOVAL(CTX, LIBXL__LOG_ERROR, rc,
++            "Priority out of range. Valid values are between 0 and 999.");
++        return ERROR_INVAL;
++    }
++
++    sdom.priority = scinfo->priority;
++    sdom.slice = scinfo->slice;
++    sdom.period = scinfo->period;
++    sdom.deadline = scinfo->deadline;
++
++    rc = xc_sched_fp_domain_set(CTX->xch, domid, &sdom);
++    if ( rc < 0 ) {
++        LIBXL__LOG_ERRNO(CTX, LIBXL__LOG_ERROR, "setting domain sched credit");
++        return ERROR_FAIL;
++    }
++
++    return 0;
++}
++
++/* Get the currently used scheduling strategy and store it in scinfo. */
++int libxl_sched_fp_schedule_get(libxl_ctx *ctx, uint32_t poolid, libxl_sched_fp_params *scinfo)
++{
++    struct xen_sysctl_fp_schedule schedule;
++    int rc;
++
++    rc = xc_sched_fp_schedule_get(ctx->xch, poolid, &schedule);
++    if (rc != 0) {
++        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "setting schedule sched fp");
++        return ERROR_FAIL;
++    }
++    
++    scinfo->strategy = schedule.strategy;
++    
++    return 0;
++}
++
++/* Set the new strategy to be used by the FP-Scheduler. */
++int libxl_sched_fp_schedule_set(libxl_ctx *ctx, uint32_t poolid, libxl_sched_fp_params *scinfo)
++{
++    struct xen_sysctl_fp_schedule schedule;
++    int rc;
++    
++    if (scinfo->strategy > 2 || scinfo->strategy < 0) {
++        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "Unknown strategy. Valid values are 0 for rate-monotonic, 1 for deadline-monotonic or 2 for fixed priority.");
++        return ERROR_INVAL;
++    }
++    
++    schedule.strategy = scinfo->strategy;
++    rc = xc_sched_fp_schedule_set(ctx->xch, poolid, &schedule);
++
++    if (rc != 0) {
++        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "setting schedule sched fp");
++        return ERROR_FAIL;
++    }
++    
++    return 0;
++}
++
++
++/* Get the hypothetical worst-case load of cpu cpu. */
++int libxl_sched_fp_get_wcload_on_cpu(libxl_ctx *ctx, int cpu, libxl_sched_fp_params *scinfo)
++{
++    struct xen_sysctl_fp_schedule schedule;
++    int rc;
++
++    rc = xc_sched_fp_get_wcload_on_cpu(ctx->xch, cpu, &schedule);
++    if (rc != 0) {
++        LIBXL__LOG_ERRNO(ctx, LIBXL__LOG_ERROR, "getting worst-case load on cpu");
++        return ERROR_FAIL;
++    }
++
++    scinfo->load = schedule.load;
++
++    return 0;
++}
++
+ int libxl_domain_sched_params_set(libxl_ctx *ctx, uint32_t domid,
+                                   const libxl_domain_sched_params *scinfo)
+ {
+@@ -6315,6 +6494,9 @@
+     case LIBXL_SCHEDULER_RTDS:
+         ret=sched_rtds_domain_set(gc, domid, scinfo);
+         break;
++    case LIBXL_SCHEDULER_FP:
++        ret=sched_fp_domain_set(gc, domid, scinfo);
++        break;
+     default:
+         LOG(ERROR, "Unknown scheduler");
+         ret=ERROR_INVAL;
+@@ -6417,6 +6599,9 @@
+     case LIBXL_SCHEDULER_RTDS:
+         ret=sched_rtds_domain_get(gc, domid, scinfo);
+         break;
++    case LIBXL_SCHEDULER_FP:
++        ret=sched_fp_domain_get(gc, domid, scinfo);
++        break;
+     default:
+         LOG(ERROR, "Unknown scheduler");
+         ret=ERROR_INVAL;
+diff -urBN xen-47orig/tools/libxl/libxl.h xen-4.7.0/tools/libxl/libxl.h
+--- xen-47orig/tools/libxl/libxl.h	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxl.h	2017-02-10 15:54:30.203675000 +0100
+@@ -1901,16 +1902,29 @@
+                                   libxl_sched_credit_params *scinfo);
+ int libxl_sched_credit_params_set(libxl_ctx *ctx, uint32_t poolid,
+                                   libxl_sched_credit_params *scinfo);
++int libxl_sched_fp_schedule_get(libxl_ctx *ctx, uint32_t poolid, 
++                                  libxl_sched_fp_params *scinfo);
++int libxl_sched_fp_schedule_set(libxl_ctx *ctx, uint32_t poolid,
++                                  libxl_sched_fp_params *scinfo);
++int libxl_sched_fp_get_wcload_on_cpu(libxl_ctx *ctx, int cpu, libxl_sched_fp_params *scinfo);
+ 
+ /* Scheduler Per-domain parameters */
+ 
+ #define LIBXL_DOMAIN_SCHED_PARAM_WEIGHT_DEFAULT    -1
+ #define LIBXL_DOMAIN_SCHED_PARAM_CAP_DEFAULT       -1
+-#define LIBXL_DOMAIN_SCHED_PARAM_PERIOD_DEFAULT    -1
+-#define LIBXL_DOMAIN_SCHED_PARAM_SLICE_DEFAULT     -1
++#define LIBXL_DOMAIN_SCHED_PARAM_PERIOD_DEFAULT    100
++#define LIBXL_DOMAIN_SCHED_PARAM_SLICE_DEFAULT     100
+ #define LIBXL_DOMAIN_SCHED_PARAM_LATENCY_DEFAULT   -1
+ #define LIBXL_DOMAIN_SCHED_PARAM_EXTRATIME_DEFAULT -1
+ #define LIBXL_DOMAIN_SCHED_PARAM_BUDGET_DEFAULT    -1
++#define LIBXL_DOMAIN_SCHED_PARAM_DEADLINE_DEFAULT  100
++#define LIBXL_DOMAIN_SCHED_PARAM_PRIORITY_DEFAULT  999
++#define LIBXL_DOMAIN_SCHED_PARAM_PRIORITY_MAX     1000
++
++/* RM/DM/FP-Scheduler stratgegies */
++#define LIBXL_SCHED_FP_STRAT_RM 0
++#define LIBXL_SCHED_FP_STRAT_DM 1
++#define LIBXL_SCHED_FP_STRAT_FP 2
+ 
+ /* Per-VCPU parameters */
+ #define LIBXL_SCHED_PARAM_VCPU_INDEX_DEFAULT   -1
+diff -urBN xen-47orig/tools/libxl/libxl_types.idl xen-4.7.0/tools/libxl/libxl_types.idl
+--- xen-47orig/tools/libxl/libxl_types.idl	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxl_types.idl	2017-02-10 15:54:30.215675000 +0100
+@@ -190,6 +190,7 @@
+     (6, "credit2"),
+     (7, "arinc653"),
+     (8, "rtds"),
++    (9, "fp"),
+     ])
+ 
+ # Consistent with SHUTDOWN_* in sched.h (apart from UNKNOWN)
+@@ -411,6 +412,8 @@
+     ("cap",          integer, {'init_val': 'LIBXL_DOMAIN_SCHED_PARAM_CAP_DEFAULT'}),
+     ("period",       integer, {'init_val': 'LIBXL_DOMAIN_SCHED_PARAM_PERIOD_DEFAULT'}),
+     ("budget",       integer, {'init_val': 'LIBXL_DOMAIN_SCHED_PARAM_BUDGET_DEFAULT'}),
++    ("deadline",     integer, {'init_val': 'LIBXL_DOMAIN_SCHED_PARAM_DEADLINE_DEFAULT'}),
++    ("priority",     integer, {'init_val': 'LIBXL_DOMAIN_SCHED_PARAM_PRIORITY_DEFAULT'}),
+ 
+     # The following three parameters ('slice', 'latency' and 'extratime') are deprecated,
+     # and will have no effect if used, since the SEDF scheduler has been removed.
+@@ -833,15 +836,23 @@
+     ("ratelimit_us", integer),
+     ], dispose_fn=None)
+ 
++libxl_sched_fp_params = Struct("sched_fp_params", [
++    ("strategy", uint8),
++    ("load", uint32),
++    ], dispose_fn=None) 
++
+ libxl_domain_remus_info = Struct("domain_remus_info",[
+     ("interval",     integer),
++    ("timeout",      integer),
+     ("allow_unsafe", libxl_defbool),
+     ("blackhole",    libxl_defbool),
+     ("compression",  libxl_defbool),
+     ("netbuf",       libxl_defbool),
+     ("netbufscript", string),
+     ("diskbuf",      libxl_defbool),
+-    ("colo",         libxl_defbool)
++    ("colo",         libxl_defbool),
++    ("event_driven", libxl_defbool),
++    ("polling",      libxl_defbool),
+     ])
+ 
+ libxl_event_type = Enumeration("event_type", [
+diff -urBN xen-47orig/tools/libxl/libxlu_cfg_l.c xen-4.7.0/tools/libxl/libxlu_cfg_l.c
+--- xen-47orig/tools/libxl/libxlu_cfg_l.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxlu_cfg_l.c	2017-02-10 15:54:30.215675000 +0100
+@@ -617,10 +617,6 @@
+ 
+ void xlu__cfg_yyset_lineno (int line_number ,yyscan_t yyscanner );
+ 
+-int xlu__cfg_yyget_column  (yyscan_t yyscanner );
+-
+-void xlu__cfg_yyset_column (int column_no ,yyscan_t yyscanner );
+-
+ YYSTYPE * xlu__cfg_yyget_lval (yyscan_t yyscanner );
+ 
+ void xlu__cfg_yyset_lval (YYSTYPE * yylval_param ,yyscan_t yyscanner );
+diff -urBN xen-47orig/tools/libxl/libxlu_cfg_l.h xen-4.7.0/tools/libxl/libxlu_cfg_l.h
+--- xen-47orig/tools/libxl/libxlu_cfg_l.h	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/libxlu_cfg_l.h	2017-02-10 15:54:30.215675000 +0100
+@@ -276,10 +276,6 @@
+ 
+ void xlu__cfg_yyset_lineno (int line_number ,yyscan_t yyscanner );
+ 
+-int xlu__cfg_yyget_column  (yyscan_t yyscanner );
+-
+-void xlu__cfg_yyset_column (int column_no ,yyscan_t yyscanner );
+-
+ YYSTYPE * xlu__cfg_yyget_lval (yyscan_t yyscanner );
+ 
+ void xlu__cfg_yyset_lval (YYSTYPE * yylval_param ,yyscan_t yyscanner );
+@@ -356,6 +352,6 @@
+ 
+ #line 103 "libxlu_cfg_l.l"
+ 
+-#line 360 "libxlu_cfg_l.h"
++#line 356 "libxlu_cfg_l.h"
+ #undef xlu__cfg_yyIN_HEADER
+ #endif /* xlu__cfg_yyHEADER_H */
+diff -urBN xen-47orig/tools/libxl/xl.c xen-4.7.0/tools/libxl/xl.c
+--- xen-47orig/tools/libxl/xl.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/xl.c	2017-02-10 15:54:30.219675000 +0100
+@@ -48,7 +48,7 @@
+ char *default_colo_proxy_script = NULL;
+ enum output_format default_output_format = OUTPUT_FORMAT_JSON;
+ int claim_mode = 1;
+-bool progress_use_cr = 0;
++bool progress_use_cr = 1;
+ 
+ xentoollog_level minmsglevel = minmsglevel_default;
+ 
+diff -urBN xen-47orig/tools/libxl/xl.h xen-4.7.0/tools/libxl/xl.h
+--- xen-47orig/tools/libxl/xl.h	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/xl.h	2017-02-10 15:54:30.219675000 +0100
+@@ -74,6 +74,7 @@
+ int main_sched_credit(int argc, char **argv);
+ int main_sched_credit2(int argc, char **argv);
+ int main_sched_rtds(int argc, char **argv);
++int main_sched_fp(int argc, char **argv);
+ int main_domid(int argc, char **argv);
+ int main_domname(int argc, char **argv);
+ int main_rename(int argc, char **argv);
+diff -urBN xen-47orig/tools/libxl/xl_cmdimpl.c xen-4.7.0/tools/libxl/xl_cmdimpl.c
+--- xen-47orig/tools/libxl/xl_cmdimpl.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/xl_cmdimpl.c	2017-02-10 15:54:30.223675000 +0100
+@@ -6456,6 +6469,85 @@
+     return 0;
+ }
+ 
++static int sched_fp_params_set(uint32_t poolid, libxl_sched_fp_params *scinfo)
++{
++    int rc;
++
++    rc = libxl_sched_fp_schedule_set(ctx, poolid, scinfo);
++    if (rc) 
++        fprintf(stderr, "libxl_sched_fp_params_set failed.\n");
++
++    return rc;
++}
++ 
++static int sched_fp_params_get(uint32_t poolid, libxl_sched_fp_params *scinfo)
++{
++    int rc;
++
++    rc = libxl_sched_fp_schedule_get(ctx, poolid, scinfo);
++    if (rc)
++        fprintf(stderr, "libxl_sched_fp_params_get failed.\n");
++    
++    return rc;
++}
++
++static int sched_fp_domain_output(int domid)
++{
++    char *domname;
++    libxl_domain_sched_params scinfo;
++    int rc;
++
++    if (domid < 0) {
++        printf("%-33s %4s %-4s %-4s %-4s %-4s\n", "Name", "ID", "Slice(us)", "Period(us)", "Deadline(us)", "Priority");
++        return 0;
++    }
++    libxl_domain_sched_params_init(&scinfo);
++    rc = sched_domain_get(LIBXL_SCHEDULER_FP, domid, &scinfo);
++    if (rc)
++        return rc;
++    domname = libxl_domid_to_name(ctx, domid);
++    printf("%-32s %5d %9u %10u %10u %8i\n",
++        domname,
++        domid,
++        (unsigned int)scinfo.slice,
++        (unsigned int)scinfo.period,
++        (unsigned int)scinfo.deadline,
++        (int)scinfo.priority);
++    free(domname);
++    libxl_domain_sched_params_dispose(&scinfo);
++    return 0;
++}
++    
++static int sched_fp_pool_output(uint32_t poolid)
++{
++    libxl_sched_fp_params scparam;
++    char *poolname;
++    char *strategy_name;
++    int rc;
++
++    poolname = libxl_cpupoolid_to_name(ctx, poolid);
++    rc = sched_fp_params_get(poolid, &scparam);
++    if (rc) {
++        printf("Cpupool: %s: [sched_params unavailable]\n", poolname);
++    } else {
++        switch (scparam.strategy) {
++            case LIBXL_SCHED_FP_STRAT_RM:
++                strategy_name = "rate-monotonic";
++                break;
++            case LIBXL_SCHED_FP_STRAT_DM:
++                strategy_name = "deadline-monotonic";
++                break; 
++            case LIBXL_SCHED_FP_STRAT_FP:
++                strategy_name = "fixed-priority";
++                break;
++        }
++        printf("Cpupool: %s: strategy=%s\n",poolname, strategy_name);
++    }
++    
++    free(poolname);
++    return 0;
++}
++    
+ static int sched_default_pool_output(uint32_t poolid)
+ {
+     char *poolname;
+@@ -6970,6 +7062,153 @@
+     return r;
+ }
+ 
++/* Print a warning when hypothetical worst-case-load of a cpu may be higher
++ * than 1.0 (100%) and deadlines may be missed using the FP-Scheduler. */
++/*static void print_cpu_warnings(void)
++{
++    libxl_topologyinfo info;
++    libxl_sched_fp scinfo;
++
++    if (libxl_get_topologyinfo(&ctx, &info)) {
++        fprintf(stderr, "libxl_get_topologyinfo failed.\n");
++        return;
++    }
++
++    for (int i = 0; i < info.coremap.entries; i++) {
++        if (info.coremap.array[i] != LIBXL_CPUARRAY_INVALID_ENTRY) {
++            if ( !(libxl_sched_fp_get_wcload_on_cpu(&ctx, info.coremap.array[i], &scinfo))) {
++                if ( scinfo.load > 100 ) 
++                    printf("Warning on CPU %d: Load is higher than 1.0. Deadlines may be missed. \n Please consider rescheduling some domains manually.\n",i);
++            }
++        }
++    }
++}*/
++    
++
++int main_sched_fp(int argc, char **argv)
++{
++    const char *dom = NULL;
++    const char *cpupool = NULL;
++    int period = 0, slice = 0, deadline = 0, priority = 0, strategy = 0;
++    int opt_S = 0;
++    int opt_s = 0, opt_P = 0, opt_p = 0, opt_D = 0;
++    int opt, rc;
++    static struct option opts[] = {
++        {"domain", 1, 0, 'd'},
++        {"period", 1, 0, 'P'},
++        {"slice", 1, 0, 's'},
++        {"deadline", 1, 0, 'd'},
++        {"priority", 1, 0, 'p'},
++        {"strategy", 1, 0, 'S'},
++        {"cpupool", 1, 0, 'c'},
++        COMMON_LONG_OPTS,
++        {0,0,0,0}
++    };
++
++    SWITCH_FOREACH_OPT(opt, "d:P:s:D:p:S:c:h", opts, "sched-fp", 0) {
++    case 'd':
++        dom = optarg;
++        break;
++    case 'P':
++        period = strtol(optarg, NULL, 10);
++        opt_P = 1;
++        break;
++    case 's':
++        slice = strtol(optarg, NULL, 10);
++        opt_s = 1;
++        break;
++    case 'D':
++        deadline = strtol(optarg, NULL, 10);
++        opt_D = 1;
++        break;
++    case 'p':
++        priority = strtol(optarg, NULL, 10);
++        opt_p = 1;
++        break;
++    case 'S':
++        strategy = strtol(optarg, NULL, 10);
++        opt_S = 1;
++        break;
++    case 'c':
++        cpupool = optarg;
++        break;
++    }
++
++    if ((cpupool || opt_S) && (dom || opt_P || opt_s || opt_D || opt_p)) {
++        fprintf(stderr, "Cpupool or strategy may not be specified with domain options.\n");
++        return 1;
++    }
++
++    if (opt_S) {
++        libxl_sched_fp_params scparam;
++        uint32_t poolid = 0;
++
++        if (cpupool) {
++            if (libxl_cpupool_qualifier_to_cpupoolid(ctx, cpupool, &poolid, NULL) ||
++                !libxl_cpupoolid_is_valid(ctx, poolid)) {
++                fprintf(stderr, "unknown cpupool \'%s\'\n", cpupool);
++                return -ERROR_FAIL;
++            }
++        }
++
++        rc = sched_fp_params_get(poolid, &scparam);
++        if (rc)
++            return -rc;
++
++        scparam.strategy = strategy;
++
++        rc = sched_fp_params_set(poolid, &scparam);
++        if (rc)
++            return -rc;
++    } else if (!dom) {
++        return -sched_domain_output(LIBXL_SCHEDULER_FP, 
++                                    sched_fp_domain_output,
++                                    sched_fp_pool_output,
++                                    cpupool);
++    } else {
++        uint32_t domid = find_domain(dom);
++
++        if (!opt_P && !opt_p && !opt_s && !opt_D) {
++            sched_fp_domain_output(-1);
++            return -sched_fp_domain_output(domid);
++        } else {
++            libxl_domain_sched_params scinfo;
++            libxl_domain_sched_params_init(&scinfo);
++
++            scinfo.sched = LIBXL_SCHEDULER_FP;
++            rc = sched_domain_get(LIBXL_SCHEDULER_FP, domid, &scinfo);
++
++            if (rc) {
++                return -rc;
++            }
++
++            if (opt_P) 
++              scinfo.period = period;
++            if (opt_s)
++              scinfo.slice = slice;
++            if (opt_D)
++              scinfo.deadline = deadline;
++            if (opt_p) {
++                libxl_sched_fp_params scparam;
++                rc = sched_fp_params_get(0, &scparam);
++
++                if (scparam.strategy != LIBXL_SCHED_FP_STRAT_FP) {
++                    fprintf(stderr, "Specifying domain priority is only allowed with fixed-priority scheduling.\n");
++                    return 1; 
++                } else {
++                    scinfo.priority = priority;
++                }
++            }
++            rc = sched_domain_set(domid, &scinfo);
++            libxl_domain_sched_params_dispose(&scinfo);
++            if (rc)
++                return -rc;
++        }
++    }
++
++    return 0;
++}
++
+ int main_domid(int argc, char **argv)
+ {
+     uint32_t domid;
+diff -urBN xen-47orig/tools/libxl/xl_cmdtable.c xen-4.7.0/tools/libxl/xl_cmdtable.c
+--- xen-47orig/tools/libxl/xl_cmdtable.c	2016-06-20 12:38:15.000000000 +0200
++++ xen-4.7.0/tools/libxl/xl_cmdtable.c	2017-02-10 15:54:30.223675000 +0100
+@@ -276,6 +276,18 @@
+       "-p PERIOD, --period=PERIOD     Period (us)\n"
+       "-b BUDGET, --budget=BUDGET     Budget (us)\n"
+     },
++    { "sched-fp",
++      &main_sched_fp, 0, 1,
++      "Get/set fp scheduler parameters",
++      "[-d <Domain> [-p[=PRIORITY]|-P[=PERIOD]|-s[=SLICE]]|-D[=DEADLINE]] [-S[=STRATEGY]]",
++      "-d DOMAIN, --domain=DOMAIN           Domain to modify\n"
++      "-p PRIORITY, --priority=PRIORITY     Priority of the specified domain (int)\n"
++      "-P PERIOD, --period=PERIOD           Period (int)\n"
++      "-s SLICE, --slice=SLICE              Slice (int)\n"
++      "-S STRATEGY, --strategy=STRATEGY     Strategy to be used by the scheduler (int)\n"
++      "                                      STRATEGY can either be 0 (rate-monotonic), 1 (deadline-monotonic) or 2 (fixed priority).\n"
++      "-D DEADLINE, --deadline=DEADLINE     Deadline (int)\n"
++    },
+     { "domid",
+       &main_domid, 0, 0,
+       "Convert a domain name to domain id",
