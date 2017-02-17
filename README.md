@@ -94,7 +94,8 @@ http://ess.cs.tu-dortmund.de/EN/Software/CPSXen/index.html
 [5] B. Jablkowski and O. Spinczyk. CPS-Remus: Eine Hochverfügbarkeitslösung für virtualisierte cyber-physische Anwendungen. In Betriebssysteme und Echtzeit - Echtzeit 2015. Springer-Verlag, Nov. 2015.
 
 ### Changlog
-from 1.1: - updated CPS-Remus to new migrate V2
-          - more stable hearbeat mechanism
-          - fixed several bugs in the scheduler
-          - added MiniOS with support for supend/resume
+from 1.1: 
+- updated CPS-Remus to new migrate V2
+- more stable hearbeat mechanism
+- fixed several bugs in the scheduler
+- added MiniOS with support for supend/resume
