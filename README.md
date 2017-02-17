@@ -4,7 +4,7 @@
 
 The CPS-Xen project aims at providing a deterministic, dependable and fault tolerant platform for executing safety-critical applications for monitoring, protection or control of cyber-physical systems (CPS). CPS-Xen is based upon the Xen-Hypervisor [1] - a popular open-source Virtual Machine Monitor (VMM). CPS-Xen extends Xen by implementing established real-time scheduling algorithms and provides additional features for the execution and monitoring of the safety-critical applications.
 
-CPS-Xen 1.2 is based upon Xen 4.7.0 version. 
+CPS-Xen 1.2 has been updated to Xen 4.7.0 version. 
 
 ### How to install?
 
@@ -20,7 +20,9 @@ The current CPS-Xen version allows to switch on the fly between the following th
 * Rate-monotonic scheduling (RM)
 * Deadline-monotonic scheduling (DM)
  
-CPS-Xen 1.1 also introduces an explicit event-based mechanism for checkpointing of paravirtualized virtual machines (PVM). This allows a PVM itself to determine the moment in time for checkpointing rather than being dependent on a periodical event. This functionality is implemented as an extention to Remus(a high availability extension for Xen)[2,3]. 
+CPS-Xen also features  an explicit event-based mechanism for checkpointing of paravirtualized virtual machines (PVM). This allows a PVM itself to determine the moment in time for checkpointing rather than being dependent on a periodical event. This functionality is implemented as an extention to Remus(a high availability extension for Xen)[2,3]. In CPS-Xen 1.2 this mechanism has been updated to use Migrate v2. 
+
+New to CPS-Xen is an enhanced MiniOS - available in the repository *mini-os* - that is able to be suspended and resumed so that it now can be protected by Remus.
 
 ### How to use?
 
@@ -92,6 +94,7 @@ http://ess.cs.tu-dortmund.de/EN/Software/CPSXen/index.html
 [5] B. Jablkowski and O. Spinczyk. CPS-Remus: Eine Hochverfügbarkeitslösung für virtualisierte cyber-physische Anwendungen. In Betriebssysteme und Echtzeit - Echtzeit 2015. Springer-Verlag, Nov. 2015.
 
 ### Changlog
-from 1.1: - adpated CPS-Remus to new migrate V2
+from 1.1: - updated CPS-Remus to new migrate V2
           - more stable hearbeat mechanism
           - fixed several bugs in the scheduler
+          - added MiniOS with support for supend/resume
