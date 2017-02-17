@@ -149,8 +149,8 @@ $(LIBPCI_STAMPFILE): pciutils-$(XEN_TARGET_ARCH) $(NEWLIB_STAMPFILE) $(ZLIB_STAM
 lwip-$(LWIP_VERSION).tar.gz:
 	$(FETCHER) $@ $(LWIP_URL)/$@
 
-lwip-$(XEN_TARGET_ARCH): lwip-$(LWIP_VERSION).zip
-	unzip $<
+lwip-$(XEN_TARGET_ARCH): lwip-$(LWIP_VERSION).tar.gz
+	tar xvzf $<
 	mv lwip $@
 	patch -d $@ -p0 < lwip.patch-cvs
 	patch -d $@ -p0 < lwip.dhcp_create_request-hwaddr_len.patch
