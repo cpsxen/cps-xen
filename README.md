@@ -26,7 +26,7 @@ New to CPS-Xen is an enhanced MiniOS - available in the repository *mini-os* - t
 
 ### How to use?
 
-####Scheduler
+#### Scheduler
 
 You can set the scheduler parameters on the fly as follows (xl or xm toolstack):
 
@@ -35,11 +35,11 @@ You can set the scheduler parameters on the fly as follows (xl or xm toolstack):
 >Options:
 
 >- -d DOMAIN,   --domain=DOMAIN         Domain to modify
-- -p PRIORITY, --priority=PRIORITY     Priority of the specified domain (int)
-- -P PERIOD,   --period=PERIOD         Period (int)
-- -s SLICE,    --slice=SLICE           Slice (int)
-- -S STRATEGY, --strategy=STRATEGY     Strategy to be used by the scheduler (int). STRATEGY can either be 0 (rate-monotonic), 1 (deadline-monotonic) or 2 (fixed priority).
-- -D DEADLINE, --deadline=DEADLINE     Deadline (int)
+>- -p PRIORITY, --priority=PRIORITY     Priority of the specified domain (int)
+>- -P PERIOD,   --period=PERIOD         Period (int)
+>- -s SLICE,    --slice=SLICE           Slice (int)
+>- -S STRATEGY, --strategy=STRATEGY     Strategy to be used by the scheduler (int). STRATEGY can either be 0 (rate-monotonic), 1 (deadline-monotonic) or 2 (fixed priority).
+>- -D DEADLINE, --deadline=DEADLINE     Deadline (int)
 
 The priorities will be (re)calculated automatically:
 * if a period respectively a deadline has been changed 
@@ -48,7 +48,7 @@ The priorities will be (re)calculated automatically:
 
 Since Linux Kernel version 3.12 a new netback model has been introduced which utilizes multiple kernel threads for packet processing. Each VM has been given a dedicated process named *vif[Domain ID]*. Through the POSIX interface (*chrt* command) in *Dom0* the scheduling priority of this process can be synchronized with the VMM-scheduler priority of the corresponding VM. This step will provide lower latencies and jitter as well as tighter response time bounds for the given VM. 
 
-####High Availability with Explicit Checkpointing
+#### High Availability with Explicit Checkpointing
 
 In order to trigger a checkpoint process the PVM that is supossed to be fail-safe has to write an arbirtraty value into the Xenbus path "/local/domain/[DomID]/data/ha". After starting Remus in Dom0 CPS-Xen registers - for the given domain - a watch on this path. Whenever a value changes on this path a callback function providing the checkpoint functionality is being executed. Further, as the periodic event is dropped in this explicit event version of checkpointing there also has to be an additional way to determine the moment for a fail-safe. This is done through a new timeout which the user is suppose to set starting Remus.
 
@@ -59,8 +59,8 @@ The xl remus functionality has been extended with the following options:
 >Options:
 
 >- -E                      Use event-driven instead of periodic checkpointing. Needs DomU support.
-- -t                      Timeout for heartbeat after which failover shall be triggered.
-- -p                      When -E is activated poll for events instead of blocking.
+>- -t                      Timeout for heartbeat after which failover shall be triggered.
+>- -p                      When -E is activated poll for events instead of blocking.
 
 ### Building MiniOS stubdomains used to evaluate CPS-Remus
 
