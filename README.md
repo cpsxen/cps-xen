@@ -64,7 +64,7 @@ The xl remus functionality has been extended with the following options:
 
 ### Building MiniOS stubdomains used to evaluate CPS-Remus
 
-The MiniOS source code - enhanced with the suspend/resume feature via XenStore signaling - can be found in the repository mini-os here on github.com/cpsxen. In order to build it just clone the repository into the *extras* directory in the Xen source tree, change to the *stubdom* directory in the Xen source tree and type *make c-stubdom*. In *stubdom/c* you can find two applications for MiniOS both implementing a simple echo server with the only difference that one of them also triggers CPS-Remus explicit checkpointing via XenStore. Per default the latter echo server with CPS-Remus support is used as application. To use the echo server without CPS-Remus support rename *stubdo/c/main.c* as you like and rename *stubdom/c/main.c.periodic* to *main.c* and rebuild.
+The MiniOS source code - enhanced with the suspend/resume feature via suspend event channel - can be found in the repository *mini-os* here on *github.com/cpsxen*. In order to build it just clone the repository into the *extras* directory in the Xen source tree, change to the *stubdom* directory in the Xen source tree and type *make c-stubdom*. In *stubdom/c* you can find two applications for MiniOS both implementing a simple echo server with the only difference that one of them also triggers CPS-Remus explicit checkpointing via XenStore. Per default the latter echo server with CPS-Remus support is used as application. To use the echo server without CPS-Remus support rename *stubdo/c/main.c* as you like and rename *stubdom/c/main.c.periodic* to *main.c* and rebuild.
 
 ### Citing CPS-Xen
 
