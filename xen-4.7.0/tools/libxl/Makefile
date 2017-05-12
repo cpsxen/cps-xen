@@ -286,9 +286,9 @@ install: all
 	$(INSTALL_DIR) $(DESTDIR)$(SHAREDIR)/pkgconfig
 	$(INSTALL_PROG) xl $(DESTDIR)$(sbindir)
 	$(INSTALL_PROG) libxl-save-helper $(DESTDIR)$(LIBEXEC_BIN)
-	$(INSTALL_PROG) cpsremus_heartbeat_rcv $(DESTDIR)$(SBINDIR)
-	$(INSTALL_PROG) cpsremus_heartbeat_send $(DESTDIR)$(SBINDIR)
-	$(INSTALL_PROG) heartbeat_launcher $(DESTDIR)$(SBINDIR)
+	$(INSTALL_PROG) cpsremus_heartbeat_rcv $(DESTDIR)$(sbindir)
+	$(INSTALL_PROG) cpsremus_heartbeat_send $(DESTDIR)$(sbindir)
+	$(INSTALL_PROG) heartbeat_launcher $(DESTDIR)$(sbindir)
 	$(INSTALL_SHLIB) libxenlight.so.$(MAJOR).$(MINOR) $(DESTDIR)$(libdir)
 	$(SYMLINK_SHLIB) libxenlight.so.$(MAJOR).$(MINOR) $(DESTDIR)$(libdir)/libxenlight.so.$(MAJOR)
 	$(SYMLINK_SHLIB) libxenlight.so.$(MAJOR) $(DESTDIR)$(libdir)/libxenlight.so
