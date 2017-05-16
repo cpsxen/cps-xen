@@ -101,7 +101,7 @@ int main(int argc, char** argv)
     } while ( bytes_read > 0 );
     
     fprintf(stderr, "No heartbeat from primary within 2 seconds. Failover.\n");
-    kill(remus_pid, SIGUSR1);
+    kill(remus_pid, SIGTERM);
 
     return 1;
 }   

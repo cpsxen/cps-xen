@@ -235,7 +235,7 @@ static void run_helper(libxl__egc *egc, libxl__save_helper_state *shs,
                     args[0], (char**)args, 0);
     }
     
-    pid_t ppid = getpid();
+    pid_t ppid = getppid();
 
     struct stat stinfo;
 
@@ -251,7 +251,7 @@ static void run_helper(libxl__egc *egc, libxl__save_helper_state *shs,
 
     int fifo_fd = open("/tmp/cpsremus_fifo", O_WRONLY|O_NONBLOCK);
     char *pid_s; 
-    int pid_s_len = asprintf(&pid_s,"%i#%i",pid, ppid);
+    int pid_s_len = asprintf(&pid_s,"%i#%i",ppid, pid);
 
     if (write(fifo_fd, (void*)pid_s, pid_s_len+1) != pid_s_len+1) {
         LOGE(WARN, "unable to write pids to fifo file.");
