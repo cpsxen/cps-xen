@@ -26,6 +26,7 @@
 #include <xen/hvm/e820.h>
 
 #include <xen-xsm/flask/flask.h>
+#include <execinfo.h>
 
 int libxl__domain_create_info_setdefault(libxl__gc *gc,
                                          libxl_domain_create_info *c_info)
@@ -764,6 +765,12 @@ static void domcreate_rebuild_done(libxl__egc *egc,
                                    libxl__domain_create_state *dcs,
                                    int ret);
 
+static void nic_create_cb(libxl__egc *egc, libxl__multidev *aodevs, int ret) { 
+	/*FILE *log = fopen("/tmp/remus_trace.log","a");
+	fprintf(log, "In %s\n", __func__);
+	fclose(log);*/
+return; }
+
 /* Our own function to clean up and call the user's callback.
  * The final call in the sequence. */
 static void domcreate_complete(libxl__egc *egc,
@@ -958,13 +965,21 @@ static void initiate_domain_create(libxl__egc *egc,
         if (d_config->nics[i].devid > last_devid)
             last_devid = d_config->nics[i].devid;
     }
+
     for (i = 0; i < d_config->num_nics; i++) {
         if (d_config->nics[i].devid < 0)
             d_config->nics[i].devid = ++last_devid;
     }
 
+	
     if (restore_fd >= 0 || dcs->domid_soft_reset != INVALID_DOMID) {
         LOG(DEBUG, "restoring, not running bootloader");
+	if (d_config->num_nics > 0) {
+        libxl__multidev_begin(ao, &dcs->multidev);
+        dcs->multidev.callback = nic_create_cb;
+        libxl__add_nics(egc, ao, domid, d_config, &dcs->multidev);
+        libxl__multidev_prepared(egc, &dcs->multidev, 0);
+	}
         domcreate_bootloader_done(egc, &dcs->bl, 0);
     } else  {
         LOG(DEBUG, "running bootloader");
@@ -1150,8 +1165,6 @@ static void domcreate_stream_done(libxl__egc *egc,
 
     if (ret)
         goto out;
-
-    gettimeofday(&start_time, NULL);
 
     switch (info->type) {
     case LIBXL_DOMAIN_TYPE_HVM:
@@ -1430,8 +1443,8 @@ static void domcreate_devmodel_started(libxl__egc *egc,
         }
     }
 
-    /* Plug nic interfaces */
-    if (d_config->num_nics > 0) {
+    /* Plug nic interfaces only if we are not restoring else it has already be done. */
+    if (!(dcs->restore_fd >= 0) && (d_config->num_nics > 0)) {
         /* Attach nics */
         libxl__multidev_begin(ao, &dcs->multidev);
         dcs->multidev.callback = domcreate_attach_vtpms;
@@ -1624,6 +1637,7 @@ static void domcreate_complete(libxl__egc *egc,
     STATE_AO_GC(dcs->ao);
     libxl_domain_config *const d_config = dcs->guest_config;
     libxl_domain_config *d_config_saved = &dcs->guest_config_saved;
+
 
     libxl__file_reference_unmap(&dcs->build_state.pv_kernel);
     libxl__file_reference_unmap(&dcs->build_state.pv_ramdisk);
