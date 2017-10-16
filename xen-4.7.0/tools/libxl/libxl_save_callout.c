@@ -251,7 +251,7 @@ static void run_helper(libxl__egc *egc, libxl__save_helper_state *shs,
 
     int fifo_fd = open("/tmp/cpsremus_fifo", O_WRONLY|O_NONBLOCK);
     char *pid_s; 
-    int pid_s_len = asprintf(&pid_s,"%i#%i",ppid, pid);
+    int pid_s_len = asprintf(&pid_s,"%i#%i",ppid, shs->domid);
 
     if (write(fifo_fd, (void*)pid_s, pid_s_len+1) != pid_s_len+1) {
         LOGE(WARN, "unable to write pids to fifo file.");
@@ -360,6 +360,10 @@ static void helper_exited(libxl__egc *egc, libxl__ev_child *ch,
     const char *what =
         GCSPRINTF("domain %"PRIu32" save/restore helper", domid);
 
+    gettimeofday(&tv, NULL);
+    fprintf(log, "In helper_exited: %lu\n", tv.tv_sec*1000000+tv.tv_usec);
+    fclose(log);
+
     if (status) {
         libxl_report_child_exitstatus(CTX, XTL_ERROR, what, pid, status);
         if (!shs->rc)
@@ -381,6 +385,7 @@ static void helper_exited(libxl__egc *egc, libxl__ev_child *ch,
     }
 
     helper_done(egc, shs);
+
     return;
 }
 

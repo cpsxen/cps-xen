@@ -4,11 +4,17 @@
 #include <sys/select.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <fcntl.h>
+//#include "libxl.h"
+//#include "libxl_utils.h"
+//#include "libxlutil.h"
 
 #define UNITS 1000 // unit is milliseconds
+
+//libxl_ctx *ctx;
 
 char** parse_pids(char *pids);
 
@@ -20,7 +26,7 @@ char** parse_pids(char *pids) {
     ret[0] = pids;  
 
     for (;*pids != '#' && *pids != '\0'; pids++)
-      fprintf(stderr, "%c",*pids);
+    fprintf(stderr, "%c",*pids);
     *pids = '\0';
     ret[1] = pids+1;
     
@@ -33,7 +39,7 @@ int main(int argc, char** argv)
     char hb;
 
     pid_t remus_pid;
-    pid_t migrate_rcv_pid;
+    //int domid;
     fd_set rdfs;
     struct timeval tv;
     int ret;
@@ -44,6 +50,8 @@ int main(int argc, char** argv)
     int fifo_fd;
     char **pidss;
     int timeout;
+    //libxl_device_nic *nics;
+    //int nb;
 
     if (argc != 2) {
         fprintf(stderr, "Not enough arguments");
@@ -73,7 +81,7 @@ int main(int argc, char** argv)
     fprintf(stderr, "pidss[1] = %s\n",pidss[1]);
     fflush(stderr);
     remus_pid = atoi(pidss[0]);
-    migrate_rcv_pid = atoi(pidss[1]);
+    //domid = atoi(pidss[1]);
 
     free(pidss);
     fprintf(stderr, "Pid of save-helper is %i\n",remus_pid);
@@ -87,8 +95,10 @@ int main(int argc, char** argv)
         ret = select(1, &rdfs, NULL, NULL, &tv);
         
         if (!ret) {
-            fprintf(stderr, "No heartbeat from primary within 2 seconds. Failover.\n");
-            kill(remus_pid, SIGUSR1);
+	    gettimeofday(&tv, NULL);
+	    fprintf(stderr, "Timestamp failover recognized: %lu\n", tv.tv_sec*1000000+tv.tv_usec);
+            fprintf(stderr, "No heartbeat from primary within %d milliseconds. Failover.\n", timeout);
+            kill(remus_pid, SIGTERM);
             return 1;
         }
 
@@ -99,9 +109,17 @@ int main(int argc, char** argv)
         }
         i++;
     } while ( bytes_read > 0 );
-    
-    fprintf(stderr, "No heartbeat from primary within 2 seconds. Failover.\n");
+    gettimeofday(&tv, NULL);
+    fprintf(stderr, "Timestamp failover recognized: %lu\n", tv.tv_sec*1000000+tv.tv_usec);
+    fprintf(stderr, "No heartbeat from primary within %d seconds. Failover.\n", timeout);
     kill(remus_pid, SIGTERM);
+
+    /* Send a gratuitous arp for instant change of mac addresses and saved switch ports. */
+/*    nics = libxl_device_nic_list(ctx, domid, &nb);
+    if (nics && nb) {
+        for (i = 0; i < nb; ++i);
+            libxl_device_nic_send_gratuitous_arp(ctx, &nics[i]);
+    }*/
 
     return 1;
 }   
