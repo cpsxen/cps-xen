@@ -1,18 +1,18 @@
-# CPS-Xen 1.2
+# CPS-Xen 1.3
 
 ### What is CPS-Xen?
 
 The CPS-Xen project aims at providing a deterministic, dependable and fault tolerant platform for executing safety-critical applications for monitoring, protection or control of cyber-physical systems (CPS). CPS-Xen is based upon the Xen-Hypervisor [1] - a popular open-source Virtual Machine Monitor (VMM). CPS-Xen extends Xen by implementing established real-time scheduling algorithms and provides additional features for the execution and monitoring of the safety-critical applications.
 
-CPS-Xen 1.2 has been updated to Xen 4.7.0 version. 
+CPS-Xen 1.3 has been updated to Xen 4.10.0 version. 
 
 ### How to install?
 
-The CPS-Xen version inside the xen-4.7.0 directory already contains the current CPS-Xen patches. To install CPS-Xen follow the standard build and installation instructions described in xen-4.7.0/README. For additional information please refer to http://wiki.xenproject.org/wiki/Compiling_Xen_From_Source. All of the applied patches are included in the main directory and divided into core patches - reflecting the changes made to the xen hypervisor code - and tools patches - related to the adjustments in the toolstacks.
+The CPS-Xen version inside the xen-4.10.0 directory already contains the current CPS-Xen patches. To install CPS-Xen follow the standard build and installation instructions described in xen-4.10.0/README. For additional information please refer to http://wiki.xenproject.org/wiki/Compiling_Xen_From_Source. All of the applied patches are included in the main directory and divided into core patches - reflecting the changes made to the xen hypervisor code - and tools patches - related to the adjustments in the toolstacks.
 
 Make sure to have "sched=fp" in the grub command line.
 
-### Features of CPS-Xen 1.2 
+### Features of CPS-Xen 1.3 
 
 The current CPS-Xen version allows to switch on the fly between the following three preemptive scheduling policies:
 
@@ -94,6 +94,9 @@ http://ess.cs.tu-dortmund.de/EN/Software/CPSXen/index.html
 [5] B. Jablkowski and O. Spinczyk. CPS-Remus: Eine Hochverfügbarkeitslösung für virtualisierte cyber-physische Anwendungen. In Betriebssysteme und Echtzeit - Echtzeit 2015. Springer-Verlag, Nov. 2015.
 
 ### Changelog
+from 1.2:
+- improved hearbeat mechanism to react faster
+- changed failover procedure in Remus to bring up networking faster after restore
 from 1.1: 
 - updated CPS-Remus to new migrate V2
 - more stable hearbeat mechanism
