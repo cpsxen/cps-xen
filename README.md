@@ -96,7 +96,7 @@ http://ess.cs.tu-dortmund.de/EN/Software/CPSXen/index.html
 ### Changelog
 from 1.2:
 - improved hearbeat mechanism to react faster
-- changed failover procedure in Remus to bring up networking faster after restore
+- changed failover procedure in Remus to bring up networking faster after restore 
 
 from 1.1: 
 - updated CPS-Remus to new migrate V2
