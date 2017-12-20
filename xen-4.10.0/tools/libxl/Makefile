@@ -310,7 +310,7 @@ test_%: test_%.o test_common.o libxlutil.so libxenlight_test.so
 libxl-save-helper: $(SAVE_HELPER_OBJS) libxenlight.so
 	$(CC) $(LDFLAGS) -o $@ $(SAVE_HELPER_OBJS) $(LDLIBS_libxentoollog) $(LDLIBS_libxenctrl) $(LDLIBS_libxenguest) $(LDLIBS_libxentoolcore) $(APPEND_LDFLAGS)
 
-cpsremus_heartbeat_rcv: $(CPSREMUS_HB_OBJS) libxenlight.so
+cpsremus_heartbeat_rcv: $(CPSREMUS_HB_OBJS) libxenlight.so libxlutil.so
 	$(CC) $(LDFLAGS) -o $@ $(CPSREMUS_HB_OBJS) libxlutil.so $(LDLIBS_libxenlight) $(LDLIBS_libxentoollog) -lyajl $(APPEND_LDFLAGS)
 
 
