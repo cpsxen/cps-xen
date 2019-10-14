@@ -545,7 +545,7 @@ struct cmd_spec cmd_table[] = {
       "-d                      Disable disk replication. Works only in unsafe mode.\n"
       "-c                      Enable COLO HA. It is conflict with -i and -b, and memory\n"
       "                        checkpoint must be disabled.\n"
-      "-p                      Use COLO userspace proxy."
+      "-p                      Use COLO userspace proxy.\n"
       "-E                      Use event-driven instead of periodic checkpointing. Needs DomU support.\n"
       "-t                      Timeout for heartbeat after which failover shall be triggered.\n"
     },
