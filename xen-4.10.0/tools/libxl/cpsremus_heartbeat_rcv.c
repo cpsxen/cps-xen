@@ -119,7 +119,7 @@ int main(int argc, char** argv)
     /* Send a gratuitous arp for instant change of mac addresses and saved switch ports. */
     nics = libxl_device_nic_list(ctx, domid, &nb);
     if (nics && nb) {
-        for (i = 0; i < nb; ++i);
+        for (i = 0; i < nb; ++i)
             libxl_device_nic_send_gratuitous_arp(ctx, &nics[i]);
     }
 
