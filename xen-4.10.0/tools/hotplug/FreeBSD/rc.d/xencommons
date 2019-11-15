@@ -5,7 +5,7 @@
 
 . /etc/rc.subr
 
-. @XEN_SCRIPT_DIR@/hotplugpath.sh
+. /etc/xen/scripts/hotplugpath.sh
 
 LD_LIBRARY_PATH="${libdir}"
 export LD_LIBRARY_PATH
@@ -37,7 +37,7 @@ xen_startcmd()
 	if test -z "$xenstored_pid"; then
 		printf "Cleaning xenstore database.\n"
 		if [ -z "${XENSTORED_ROOTDIR}" ]; then
-			XENSTORED_ROOTDIR="@XEN_LIB_STORED@"
+			XENSTORED_ROOTDIR="/var/lib/xenstored"
 		fi
 		rm -f ${XENSTORED_ROOTDIR}/tdb* >/dev/null 2>&1
 		printf "Starting xenservices: xenstored, xenconsoled."
