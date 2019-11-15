@@ -813,7 +813,8 @@ int create_domain(struct domain_create *dom_info)
             common_domname = d_config.c_info.name;
             d_config.c_info.name = 0; /* steals allocation from config */
 
-            xasprintf(&d_config.c_info.name, "%s--incoming", common_domname);
+            if(dom_info->checkpointed_stream == LIBXL_CHECKPOINTED_STREAM_REMUS) xasprintf(&d_config.c_info.name, "%s--remus-incoming", common_domname);
+            else xasprintf(&d_config.c_info.name, "%s--incoming", common_domname);
             *dom_info->migration_domname_r = strdup(d_config.c_info.name);
         }
     }

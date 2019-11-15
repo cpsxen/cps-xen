@@ -100,6 +100,9 @@ int main(int argc, char** argv)
             fprintf(stderr, "No heartbeat from primary within %d milliseconds. Failover.\n", timeout);
             fprintf(stderr, "Killing ssh process with pid: %d\n", remus_pid);
 	        kill(remus_pid, SIGTERM);
+            // Remove fifo file
+            if(remove("/tmp/cpsremus_fifo")) fprintf(stderr,"Could not remove cpsremus_fifo\n"); 
+
             return 1;
         }
 
@@ -115,12 +118,13 @@ int main(int argc, char** argv)
     fprintf(stderr, "No heartbeat from primary within %d seconds. Failover.\n", timeout);
     fprintf(stderr, "Killing ssh process with pid: %d\n", remus_pid);
     kill(remus_pid, SIGTERM);
+    // Remove fifo file
+    if(remove("/tmp/cpsremus_fifo")) fprintf(stderr,"Could not remove cpsremus_fifo\n"); 
 
     /* Send a gratuitous arp for instant change of mac addresses and saved switch ports. */
     nics = libxl_device_nic_list(ctx, domid, &nb);
     if (nics && nb) {
-        for (i = 0; i < nb; ++i);
-            libxl_device_nic_send_gratuitous_arp(ctx, &nics[i]);
+        for (i = 0; i < nb; ++i) libxl_device_nic_send_gratuitous_arp(ctx, &nics[i]);
     }
 
     return 1;

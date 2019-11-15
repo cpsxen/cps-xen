@@ -182,8 +182,8 @@ static void migrate_domain(uint32_t domid, const char *rune, int debug,
     pid_t child = -1;
     int rc;
     int send_fd = -1, recv_fd = -1;
-    char *away_domname;
     char rc_buf;
+    char *new_domname;
     uint8_t *config_data;
     int config_len, flags = LIBXL_SUSPEND_LIVE;
 
@@ -195,6 +195,7 @@ static void migrate_domain(uint32_t domid, const char *rune, int debug,
                 "none supplied - cannot migrate.\n");
         exit(EXIT_FAILURE);
     }
+
 
     child = create_migration_child(rune, &send_fd, &recv_fd);
 
@@ -233,9 +234,11 @@ static void migrate_domain(uint32_t domid, const char *rune, int debug,
     fprintf(stderr, "migration sender: Target has acknowledged transfer.\n");
 
     if (common_domname) {
-        xasprintf(&away_domname, "%s--migratedaway", common_domname);
-        rc = libxl_domain_rename(ctx, domid, common_domname, away_domname);
-        if (rc) goto failed_resume;
+        xasprintf(&new_domname, "%s--outgoing", common_domname);
+
+        rc = libxl_domain_rename(ctx, domid, NULL, new_domname);
+        if (rc) fprintf(stderr, "renaming domain failed"
+                " (rc=%d)\n", rc);
     }
 
     /* point of no return - as soon as we have tried to say
@@ -274,7 +277,7 @@ static void migrate_domain(uint32_t domid, const char *rune, int debug,
         fprintf(stderr, "migration sender: Trying to resume at our end.\n");
 
         if (common_domname) {
-            libxl_domain_rename(ctx, domid, away_domname, common_domname);
+            libxl_domain_rename(ctx, domid, new_domname, common_domname);
         }
         rc = libxl_domain_resume(ctx, domid, 1, 0);
         if (!rc) fprintf(stderr, "migration sender: Resumed OK.\n");
@@ -387,6 +390,7 @@ static void migrate_receive(int debug, int daemonize, int monitor,
          * as is and let the Administrator decide (or troubleshoot).
          */
         if (migration_domname) {
+            printf("Receive side: migration_domain %s, common_domname %s\n", migration_domname, common_domname);
             rc = libxl_domain_rename(ctx, domid, migration_domname,
                                      common_domname);
             if (rc)
@@ -590,6 +594,7 @@ int main_migrate(int argc, char **argv)
     }
 
     domid = find_domain(argv[optind]);
+
     host = argv[optind + 1];
 
     bool pass_tty_arg = progress_use_cr || (isatty(2) > 0);
@@ -627,6 +632,7 @@ int main_remus(int argc, char **argv)
     int opt, rc, daemonize = 1;
     const char *ssh_command = "ssh";
     char *host = NULL, *rune = NULL;
+    char *new_domname;
     libxl_domain_remus_info r_info;
     int send_fd = -1, recv_fd = -1;
     pid_t child = -1;
@@ -750,8 +756,8 @@ int main_remus(int argc, char **argv)
         save_domain_core_begin(domid, NULL, &config_data, &config_len);
 
         hb_child = fork();
-        
         if (!hb_child) {
+
             if (system(runhb) != 0) {
                 fprintf(stderr, "Could not initiate heartbeat. Aborting");
                 exit(1);
@@ -773,6 +779,15 @@ int main_remus(int argc, char **argv)
         if (ssh_command[0])
             free(rune);
     }
+
+    if (common_domname) {
+        xasprintf(&new_domname, "%s--remus-outgoing", common_domname);
+
+        rc = libxl_domain_rename(ctx, domid, NULL, new_domname);
+        if (rc) fprintf(stderr, "renaming domain failed"
+                " (rc=%d)\n", rc);
+    }
+
 
     /* Point of no return */
     rc = libxl_domain_remus_start(ctx, &r_info, domid, send_fd, recv_fd, 0);

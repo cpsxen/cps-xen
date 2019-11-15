@@ -170,7 +170,7 @@ static void domain_suspend_callback_common(libxl__egc *egc,
 
         rc = libxl__ev_time_register_rel(ao, &dsps->guest_timeout,
                                          suspend_common_wait_guest_timeout,
-                                         60*1000);
+                                         LIBXL_COMMON_SUSPEND_TIMEOUT);
         if (rc) goto err;
 
         return;
@@ -301,7 +301,7 @@ static void domain_suspend_common_wait_guest(libxl__egc *egc,
 
     rc = libxl__ev_time_register_rel(ao, &dsps->guest_timeout,
                                      suspend_common_wait_guest_timeout,
-                                     60*1000);
+                                     LIBXL_COMMON_SUSPEND_TIMEOUT);
     if (rc) goto err;
     return;
 
