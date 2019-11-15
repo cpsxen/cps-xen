@@ -806,6 +806,12 @@ int main_remus(int argc, char **argv)
      * failed. Try to resume the domain and exit gracefully.
      * TODO: Split-Brain check.
      */
+    if (common_domname) {
+        rc = libxl_domain_rename(ctx, domid, NULL, common_domname);
+        if (rc) fprintf(stderr, "renaming domain failed"
+                " (rc=%d)\n", rc);
+    }
+
     if (rc == ERROR_GUEST_TIMEDOUT)
         fprintf(stderr, "Failed to suspend domain at primary.\n");
     else {
