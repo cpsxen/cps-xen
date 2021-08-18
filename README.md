@@ -93,6 +93,8 @@ http://ess.cs.tu-dortmund.de/EN/Software/CPSXen/index.html
 
 [5] B. Jablkowski and O. Spinczyk. CPS-Remus: Eine Hochverfügbarkeitslösung für virtualisierte cyber-physische Anwendungen. In Betriebssysteme und Echtzeit - Echtzeit 2015. Springer-Verlag, Nov. 2015.
 
+[6] B. Jablkowski, M. Mueller, and O. Spinczyk. High availability in cyber-physical systems by self-determined virtual machine replication. In Proceedings of the 13th IEEE International Symposium on Industrial Embedded Systems (SIES 2018), pages 1–10, June 2018. 
+
 ### Changelog
 from 1.2:
 - improved hearbeat mechanism to react faster
